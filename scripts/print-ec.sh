@@ -1,8 +1,8 @@
 echo "Sending print command to nvmevirt..."
-if [ $1 = "-p" ]; then
-    sudo nvme io-passthru /dev/nvme0 --opcode=0xff --namespace-id=1 --cdw2=1
+if [ -n "$1" ] && [ "$1" = "-p" ]; then
+    sudo nvme io-passthru /dev/nvme0 --opcode=0xff --namespace-id=1 --cdw2=1 > /dev/null 2>&1
 else
-    sudo nvme io-passthru /dev/nvme0 --opcode=0xff --namespace-id=1 
+    sudo nvme io-passthru /dev/nvme0 --opcode=0xff --namespace-id=1 > /dev/null 2>&1
 fi
 
 if [ $? -eq 0 ]; then

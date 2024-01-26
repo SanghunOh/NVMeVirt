@@ -1305,7 +1305,7 @@ static void foreground_gc(struct conv_ftl *conv_ftl)
 
 		do_gc(conv_ftl, victim_line, false);
 		/* perform wear leveling when gc succeeds*/
-		dual_pool(conv_ftl);
+		// dual_pool(conv_ftl);
 	}
 }
 
