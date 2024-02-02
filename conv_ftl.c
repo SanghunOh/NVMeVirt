@@ -1053,6 +1053,8 @@ static void do_cold_data_migration(struct conv_ftl *conv_ftl)
 	ppa.ppa = 0;
 	ppa.g.blk = wl->min_ec_cold_line->id;
 
+	wl_copy_line(conv_ftl, ppa);
+
 	if (wl->max_ec_hot_line->vpc == 0) {
 		list_add_tail(&victim_line->entry, &lm->free_line_list);
 		lm->free_line_cnt++;
@@ -1202,8 +1204,6 @@ static void dual_pool(struct conv_ftl *conv_ftl)
 	struct wl_dual_pool *wl = &conv_ftl->wl;
 	bool term;
 	
-	while (check_cold_data_migration(conv_ftl))
-		do_cold_data_migration(conv_ftl);
 	term = false;
 	while (!term && check_hot_pool_adjustment(conv_ftl)) {
 		do_hot_pool_adjustment(conv_ftl, &term);
@@ -1212,6 +1212,8 @@ static void dual_pool(struct conv_ftl *conv_ftl)
 	while (!term && check_cold_pool_adjustment(conv_ftl)) {
 		do_cold_pool_adjustment(conv_ftl, &term);
     }
+	while (check_cold_data_migration(conv_ftl))
+		do_cold_data_migration(conv_ftl);
 }
 
 static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
@@ -1236,7 +1238,7 @@ static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, stru
 	}
 	printk(KERN_INFO "");
 
-	if (print_each_bool) {
+	if (print_each_bool ==1) {
 		printk(KERN_INFO "------------HOT POOL %d------------", wl->hot_pool_cnt);
 		printk(KERN_INFO "");
 		for (i = 0; i < spp->tt_lines; i++) {
@@ -1250,6 +1252,24 @@ static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, stru
 		for (i = 0; i < spp->tt_lines; i++) {
 			if (lm->lines[i].pool == COLD_POOL)
 				printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
+		}
+		printk(KERN_INFO "");
+	}
+
+	if (print_each_bool == 2) {
+		printk(KERN_INFO "------------HOT POOL %d------------", wl->hot_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < spp->tt_lines; i++) {
+			if (lm->lines[i].pool == HOT_POOL)
+				printk(KERN_CONT "%d(%d) ", lm->lines[i].nr_erase, lm->lines[i].eec);
+		}
+		printk(KERN_INFO "");
+
+		printk(KERN_INFO "------------COLD POOL %d------------", wl->cold_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < spp->tt_lines; i++) {
+			if (lm->lines[i].pool == COLD_POOL)
+				printk(KERN_CONT "%d(%d) ", lm->lines[i].nr_erase, lm->lines[i].eec);
 		}
 		printk(KERN_INFO "");
 	}
