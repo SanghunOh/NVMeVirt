@@ -9,8 +9,6 @@
 void schedule_internal_operation(int sqid, unsigned long long nsecs_target,
 				 struct buffer *write_buffer, unsigned int buffs_to_release);
 static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret);
-static void _print_erase_cnt(struct conv_ftl* conv_ftl);
-
 static inline bool last_pg_in_wordline(struct conv_ftl *conv_ftl, struct ppa *ppa)
 {
 	struct ssdparams *spp = &conv_ftl->ssd->sp;
@@ -1214,36 +1212,6 @@ static void dual_pool(struct conv_ftl *conv_ftl)
 	while (!term && check_cold_pool_adjustment(conv_ftl)) {
 		do_cold_pool_adjustment(conv_ftl, &term);
     }
-}
-
-static void _print_erase_cnt(struct conv_ftl *conv_ftl)
-{
-	struct ssdparams *spp = &conv_ftl->ssd->sp;	
-	struct wl_dual_pool *wl = &conv_ftl->wl;
-	struct line_mgmt *lm = &conv_ftl->lm;
-	int i;
-	printk(KERN_INFO "------------TOTAL %ld------------", spp->tt_lines);
-	printk(KERN_INFO "");
-	for (i = 0; i < spp->tt_lines; i++) {
-		printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
-	}
-	printk(KERN_INFO "");
-
-	printk(KERN_INFO "------------HOT POOL %d------------", wl->hot_pool_cnt);
-	printk(KERN_INFO "");
-	for (i = 0; i < spp->tt_lines; i++) {
-		if (lm->lines[i].pool == HOT_POOL)
-			printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
-	}
-	printk(KERN_INFO "");
-
-	printk(KERN_INFO "------------COLD POOL %d------------", wl->cold_pool_cnt);
-	printk(KERN_INFO "");
-	for (i = 0; i < spp->tt_lines; i++) {
-		if (lm->lines[i].pool == COLD_POOL)
-			printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
-	}
-	printk(KERN_INFO "");
 }
 
 static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
