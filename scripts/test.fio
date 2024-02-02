@@ -7,4 +7,5 @@ numjobs=1
 name=ssd-targets
 
 [job1]
+filename=./mount
 read_iolog=trace_lun_2_fio.trace
