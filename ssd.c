@@ -103,7 +103,8 @@ void ssd_init_params(struct ssdparams *spp, uint64_t capacity, uint32_t nparts)
 	spp->flashpgs_per_blk = (ONESHOT_PAGE_SIZE / FLASH_PAGE_SIZE) * spp->oneshotpgs_per_blk;
 
 	spp->pgs_per_blk = spp->pgs_per_oneshotpg * spp->oneshotpgs_per_blk;
-
+	printk(KERN_INFO "pgs per flashpg: %d, flashpgs per blk: %d, blksize: %lld", spp->pgs_per_flashpg, spp->flashpgs_per_blk, blk_size);
+	printk(KERN_INFO "pages per oneshotpage: %d", spp->pgs_per_oneshotpg);
 	spp->write_unit_size = WRITE_UNIT_SIZE;
 
 	spp->pg_4kb_rd_lat[CELL_TYPE_LSB] = NAND_4KB_READ_LATENCY_LSB;
@@ -418,6 +419,7 @@ uint64_t ssd_advance_nand(struct ssd *ssd, struct nand_cmd *ncmd)
 	case NAND_WRITE:
 		/* write: transfer data through channel first */
 		chnl_stime = max(lun->next_lun_avail_time, cmd_stime);
+		// NVMEV_INFO("WRITE: %llu %llu", lun->next_lun_avail_time, cmd_stime);
 
 		chnl_etime = chmodel_request(ch->perf_model, chnl_stime, ncmd->xfer_size);
 

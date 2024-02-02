@@ -10,9 +10,9 @@
 
 #define COLD_POOL 0
 #define HOT_POOL 1
-#define TH_COLD_DATA_MIGRATION 3
-#define TH_COLD_POOL_ADJUSTMENT 6
-#define TH_HOT_POOL_ADJUSTMENT 6
+#define TH_COLD_DATA_MIGRATION 10
+#define TH_COLD_POOL_ADJUSTMENT 10
+#define TH_HOT_POOL_ADJUSTMENT 20
 
 struct convparams {
 	uint32_t gc_thres_lines;
@@ -71,6 +71,9 @@ struct write_flow_control {
 };
 
 struct wl_dual_pool {
+	uint32_t cdm;
+	uint32_t cpa;
+	uint32_t hpa;
 	uint32_t hot_pool_cnt;
 	uint32_t cold_pool_cnt;
 

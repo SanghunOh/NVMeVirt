@@ -96,6 +96,24 @@ static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 #define FW_CH_XFER_LATENCY (0)
 #define OP_AREA_PERCENT (0.07)
 
+
+// #define NAND_4KB_READ_LATENCY_LSB (357 - 60) //ns
+// #define NAND_4KB_READ_LATENCY_MSB (357 + 60) //ns
+// #define NAND_4KB_READ_LATENCY_CSB (0) //not used
+// #define NAND_READ_LATENCY_LSB (360 - 60)
+// #define NAND_READ_LATENCY_MSB (360 + 60)
+// #define NAND_READ_LATENCY_CSB (0) //not used
+// #define NAND_PROG_LATENCY (1850)
+// #define NAND_ERASE_LATENCY (0)
+
+// #define FW_4KB_READ_LATENCY (215)
+// #define FW_READ_LATENCY (304)
+// #define FW_WBUF_LATENCY0 (40)
+// #define FW_WBUF_LATENCY1 (4)
+// #define FW_CH_XFER_LATENCY (0)
+// #define OP_AREA_PERCENT (0.07)
+
+
 #define GLOBAL_WB_SIZE (NAND_CHANNELS * LUNS_PER_NAND_CH * ONESHOT_PAGE_SIZE * 2)
 #define WRITE_EARLY_COMPLETION 1
 

@@ -1,4 +1,5 @@
-KERNELDIR := /lib/modules/$(shell uname -r)/build
+# KERNELDIR := /lib/modules/$(shell uname -r)/build
+KERNELDIR := /lib/modules/5.15.0-92-generic/build
 PWD       := $(shell pwd)
 INSTALL_MOD_PATH :=
 

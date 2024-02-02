@@ -71,8 +71,8 @@ uint64_t chmodel_request(struct channel_model *ch, uint64_t request_time, uint64
 	request_time_offs = (request_time / UNIT_TIME_INTERVAL) - (cur_time / UNIT_TIME_INTERVAL);
 
 	if (request_time_offs >= NR_CREDIT_ENTRIES) {
-		NVMEV_ERROR("[%s] Need to increase array size 0x%llx 0x%llx 0x%x\n", __func__,
-			    request_time, cur_time, request_time_offs);
+		NVMEV_ERROR("[%s] Need to increase array size 0x%llx 0x%llx 0x%x 0x%x\n", __func__,
+			    request_time, cur_time, request_time_offs, NR_CREDIT_ENTRIES);
 		return request_time; // return minimum delay
 	}
 
