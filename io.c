@@ -8,7 +8,7 @@
 #include "nvmev.h"
 #include "dma.h"
 
-#if (SUPPORTED_SSD_TYPE(CONV) || SUPPORTED_SSD_TYPE(ZNS))
+#if (SUPPORTED_SSD_TYPE(CONV) || SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(DFTL))
 #include "ssd.h"
 #else
 struct buffer;

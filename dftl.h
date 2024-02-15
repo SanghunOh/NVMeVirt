@@ -16,6 +16,11 @@ struct dftlparams {
 
 	double op_area_pcent;
 	int pba_pcent; /* (physical space / logical space) * 100*/
+	
+	int entries_per_tpage;
+	int tt_tpages;
+	int tt_tblks;
+	int tt_tlines;
 };
 
 // struct line {
@@ -56,16 +61,23 @@ struct dftlparams {
 // 	uint32_t credits_to_refill;
 // };
 
+// struct gtd {
+// 	struct ppa *table;
+// };
+
 struct dftl {
 	struct ssd *ssd;
 
-	struct dftlparams cp;
+	struct dftlparams dp;
 	struct ppa *maptbl; /* page level mapping table */
 	uint64_t *rmap; /* reverse mapptbl, assume it's stored in OOB */
 	struct write_pointer wp;
+	// struct write_pointer translation_wp;
 	struct write_pointer gc_wp;
 	struct line_mgmt lm;
 	struct write_flow_control wfc;
+
+	// struct gtd gtd;
 };
 
 void dftl_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,

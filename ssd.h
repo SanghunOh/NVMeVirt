@@ -35,6 +35,7 @@ enum {
 enum {
 	USER_IO = 0,
 	GC_IO = 1,
+	TRANSLATION_IO = 2,
 };
 
 enum {
@@ -86,6 +87,8 @@ struct nand_page {
 	nand_sec_status_t *sec;
 	int nsecs;
 	int status;
+	bool translation;
+	struct ppa *l2p;
 };
 
 struct nand_block {

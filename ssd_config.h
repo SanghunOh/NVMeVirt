@@ -68,7 +68,7 @@ enum {
 
 #define SSD_PARTITIONS (4)
 #define NAND_CHANNELS (8)
-#define LUNS_PER_NAND_CH (2)
+#define LUNS_PER_NAND_CH (2) // 8 for 16GB
 #define PLNS_PER_LUN (1)
 #define FLASH_PAGE_SIZE KB(32)
 #define ONESHOT_PAGE_SIZE (FLASH_PAGE_SIZE * 1)
@@ -104,7 +104,7 @@ static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 #elif (BASE_SSD == SAMSUNG_970PRO_DFTL)
 #define NR_NAMESPACES 1
 
-#define NS_SSD_TYPE_0 SSD_TYPE_CONV
+#define NS_SSD_TYPE_0 SSD_TYPE_DFTL
 #define NS_CAPACITY_0 (0)
 #define NS_SSD_TYPE_1 NS_SSD_TYPE_0
 #define NS_CAPACITY_1 (0)

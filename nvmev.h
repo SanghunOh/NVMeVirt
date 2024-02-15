@@ -24,9 +24,12 @@
 #define NVMEV_SUBSYSTEM_ID	0x370d
 #define NVMEV_SUBSYSTEM_VENDOR_ID NVMEV_VENDOR_ID
 
-#define NVMEV_INFO(string, args...) printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ERROR(string, args...) printk(KERN_ERR "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_INFO(string, args...) printk(KERN_INFO "%s(%s): " string, NVMEV_DRV_NAME, __func__, ##args)
+#define NVMEV_ERROR(string, args...) printk(KERN_ERR "%s(%s): " string, NVMEV_DRV_NAME, __func__, ##args)
 #define NVMEV_ASSERT(x) BUG_ON((!(x)))
+
+// #define CONFIG_NVMEV_DEBUG
+// #define CONFIG_NVMEV_DEBUG_VERBOSE
 
 #ifdef CONFIG_NVMEV_DEBUG
 #define  NVMEV_DEBUG(string, args...) printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)

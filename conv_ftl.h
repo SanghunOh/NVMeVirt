@@ -4,6 +4,7 @@
 #define _NVMEVIRT_CONV_FTL_H
 
 #include <linux/types.h>
+#include <linux/hashtable.h>
 #include "pqueue/pqueue.h"
 #include "ssd_config.h"
 #include "ssd.h"
@@ -24,6 +25,8 @@ struct line {
 	struct list_head entry;
 	/* position in the priority queue for victim lines */
 	size_t pos;
+
+	bool translation;
 };
 
 /* wp: record next write addr */
@@ -48,11 +51,39 @@ struct line_mgmt {
 	uint32_t free_line_cnt;
 	uint32_t victim_line_cnt;
 	uint32_t full_line_cnt;
+
+	int translation_line_cnt;
 };
 
 struct write_flow_control {
 	uint32_t write_credits;
 	uint32_t credits_to_refill;
+};
+
+struct gtd {
+	int map_per_pg;
+	int tt_tpgs;
+	struct ppa *tbl;
+};
+
+struct cmt_entry {
+	int vpn;
+	struct ppa *l2p;
+	bool dirty;
+
+	struct hlist_node hnode;
+	struct list_head entry;
+};
+
+struct cmt {
+	int tt_tpgs;
+	int entry_cnt;
+
+	uint64_t hit_cnt;
+	uint64_t miss_cnt;
+
+	struct list_head lru_list;
+	DECLARE_HASHTABLE(lru_hash, 8);
 };
 
 struct conv_ftl {
@@ -63,6 +94,11 @@ struct conv_ftl {
 	uint64_t *rmap; /* reverse mapptbl, assume it's stored in OOB */
 	struct write_pointer wp;
 	struct write_pointer gc_wp;
+	struct write_pointer translation_wp;
+
+	struct gtd gtd;
+	struct cmt cmt;
+
 	struct line_mgmt lm;
 	struct write_flow_control wfc;
 };

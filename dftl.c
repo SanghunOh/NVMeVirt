@@ -5,6 +5,7 @@
 
 #include "nvmev.h"
 #include "dftl.h"
+#include "conv_ftl.h"
 
 void schedule_internal_operation(int sqid, unsigned long long nsecs_target,
 				 struct buffer *write_buffer, unsigned int buffs_to_release);
@@ -17,12 +18,12 @@ static inline bool last_pg_in_wordline(struct dftl *dftl, struct ppa *ppa)
 
 static bool should_gc(struct dftl *dftl)
 {
-	return (dftl->lm.free_line_cnt <= dftl->cp.gc_thres_lines);
+	return (dftl->lm.free_line_cnt <= dftl->dp.gc_thres_lines);
 }
 
 static inline bool should_gc_high(struct dftl *dftl)
 {
-	return dftl->lm.free_line_cnt <= dftl->cp.gc_thres_lines_high;
+	return dftl->lm.free_line_cnt <= dftl->dp.gc_thres_lines_high;
 }
 
 static inline struct ppa get_maptbl_ent(struct dftl *dftl, uint64_t lpn)
@@ -331,10 +332,10 @@ static void remove_rmap(struct dftl *dftl)
 	vfree(dftl->rmap);
 }
 
-static void dftl_init_ftl(struct dftl *dftl, struct dftlparams *cpp, struct ssd *ssd)
+static void dftl_init_ftl(struct dftl *dftl, struct dftlparams *dpp, struct ssd *ssd)
 {
 	/*copy dftlparams*/
-	dftl->cp = *cpp;
+	dftl->dp = *dpp;
 
 	dftl->ssd = ssd;
 
@@ -366,34 +367,34 @@ static void dftl_remove_ftl(struct dftl *dftl)
 	remove_maptbl(dftl);
 }
 
-static void dftl_init_params(struct dftlparams *cpp)
+static void dftl_init_params(struct dftlparams *dpp)
 {
-	cpp->op_area_pcent = OP_AREA_PERCENT;
-	cpp->gc_thres_lines = 2; /* Need only two lines.(host write, gc)*/
-	cpp->gc_thres_lines_high = 2; /* Need only two lines.(host write, gc)*/
-	cpp->enable_gc_delay = 1;
-	cpp->pba_pcent = (int)((1 + cpp->op_area_pcent) * 100);
+	dpp->op_area_pcent = OP_AREA_PERCENT;
+	dpp->gc_thres_lines = 2; /* Need only two lines.(host write, gc)*/
+	dpp->gc_thres_lines_high = 2; /* Need only two lines.(host write, gc)*/
+	dpp->enable_gc_delay = 1;
+	dpp->pba_pcent = (int)((1 + dpp->op_area_pcent) * 100);
 }
 
 void dftl_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,
 			 uint32_t cpu_nr_dispatcher)
 {
 	struct ssdparams spp;
-	struct dftlparams cpp;
+	struct dftlparams dpp;
 	struct dftl *dftls;
 	struct ssd *ssd;
 	uint32_t i;
 	const uint32_t nr_parts = SSD_PARTITIONS;
 
 	ssd_init_params(&spp, size, nr_parts);
-	dftl_init_params(&cpp);
+	dftl_init_params(&dpp);
 
 	dftls = kmalloc(sizeof(struct dftl) * nr_parts, GFP_KERNEL);
 
 	for (i = 0; i < nr_parts; i++) {
 		ssd = kmalloc(sizeof(struct ssd), GFP_KERNEL);
 		ssd_init(ssd, &spp, cpu_nr_dispatcher);
-		dftl_init_ftl(&dftls[i], &cpp, ssd);
+		dftl_init_ftl(&dftls[i], &dpp, ssd);
 	}
 
 	/* PCIe, Write buffer are shared by all instances*/
@@ -410,13 +411,13 @@ void dftl_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *
 	ns->csi = NVME_CSI_NVM;
 	ns->nr_parts = nr_parts;
 	ns->ftls = (void *)dftls;
-	ns->size = (uint64_t)((size * 100) / cpp.pba_pcent);
+	ns->size = (uint64_t)((size * 100) / dpp.pba_pcent);
 	ns->mapped = mapped_addr;
 	/*register io command handler*/
 	ns->proc_io_cmd = dftl_proc_nvme_io_cmd;
 
 	NVMEV_INFO("FTL physical space: %lld, logical space: %lld (physical/logical * 100 = %d)\n",
-		   size, ns->size, cpp.pba_pcent);
+		   size, ns->size, dpp.pba_pcent);
 
 	return;
 }
@@ -581,7 +582,7 @@ static void mark_block_free(struct dftl *dftl, struct ppa *ppa)
 static void gc_read_page(struct dftl *dftl, struct ppa *ppa)
 {
 	struct ssdparams *spp = &dftl->ssd->sp;
-	struct dftlparams *cpp = &dftl->cp;
+	struct dftlparams *cpp = &dftl->dp;
 	/* advance dftl status, we don't care about how long it takes */
 	if (cpp->enable_gc_delay) {
 		struct nand_cmd gcr = {
@@ -600,7 +601,7 @@ static void gc_read_page(struct dftl *dftl, struct ppa *ppa)
 static uint64_t gc_write_page(struct dftl *dftl, struct ppa *old_ppa)
 {
 	struct ssdparams *spp = &dftl->ssd->sp;
-	struct dftlparams *cpp = &dftl->cp;
+	struct dftlparams *cpp = &dftl->dp;
 	struct ppa new_ppa;
 	uint64_t lpn = get_rmap_ent(dftl, old_ppa);
 
@@ -695,7 +696,7 @@ static void clean_one_block(struct dftl *dftl, struct ppa *ppa)
 static void clean_one_flashpg(struct dftl *dftl, struct ppa *ppa)
 {
 	struct ssdparams *spp = &dftl->ssd->sp;
-	struct dftlparams *cpp = &dftl->cp;
+	struct dftlparams *cpp = &dftl->dp;
 	struct nand_page *pg_iter = NULL;
 	int cnt = 0, i = 0;
 	uint64_t completed_time = 0;
@@ -787,7 +788,7 @@ static int do_gc(struct dftl *dftl, bool force)
 				clean_one_flashpg(dftl, &ppa);
 
 				if (flashpg == (spp->flashpgs_per_blk - 1)) {
-					struct dftlparams *cpp = &dftl->cp;
+					struct dftlparams *cpp = &dftl->dp;
 
 					mark_block_free(dftl, &ppa);
 
@@ -961,8 +962,10 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 	}
 
 	allocated_buf_size = buffer_allocate(wbuf, LBA_TO_BYTE(nr_lba));
-	if (allocated_buf_size < LBA_TO_BYTE(nr_lba))
+	if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
+		NVMEV_ERROR("BUFFER ALLOCATE FAILED %d %lld", allocated_buf_size, LBA_TO_BYTE(nr_lba));
 		return false;
+	}
 
 	nsecs_latest =
 		ssd_advance_write_buffer(dftl->ssd, req->nsecs_start, LBA_TO_BYTE(nr_lba));
