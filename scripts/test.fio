@@ -1,0 +1,11 @@
+[global]
+bs=4K
+iodepth=16
+direct=1
+group_reporting
+numjobs=1
+name=ssd-targets
+
+[job1]
+filename=./mount
+read_iolog=trace_lun_2_fio.trace

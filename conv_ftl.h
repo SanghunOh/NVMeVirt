@@ -101,6 +101,8 @@ struct conv_ftl {
 
 	struct line_mgmt lm;
 	struct write_flow_control wfc;
+
+	int gc_cnt;
 };
 
 void conv_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,

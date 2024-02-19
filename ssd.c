@@ -168,7 +168,7 @@ void ssd_init_params(struct ssdparams *spp, uint64_t capacity, uint32_t nparts)
 		spp->tt_lines, BYTE_TO_MB(spp->pgs_per_blk * spp->pgsz),
 		BYTE_TO_KB(spp->pgs_per_blk * spp->pgsz), BYTE_TO_MB(spp->pgs_per_line * spp->pgsz),
 		BYTE_TO_KB(spp->pgs_per_line * spp->pgsz));
-	NVMEV_INFO("TOTAL pages: %lu, blocks per line: %ld\n", spp->tt_pgs, spp->blks_per_line);
+	NVMEV_INFO("UNMAPPED PPA: %llu", UNMAPPED_PPA);
 }
 
 static void ssd_init_nand_page(struct nand_page *pg, struct ssdparams *spp)

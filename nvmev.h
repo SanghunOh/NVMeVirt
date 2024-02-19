@@ -28,7 +28,7 @@
 #define NVMEV_ERROR(string, args...) printk(KERN_ERR "%s(%s): " string, NVMEV_DRV_NAME, __func__, ##args)
 #define NVMEV_ASSERT(x) BUG_ON((!(x)))
 
-// #define CONFIG_NVMEV_DEBUG
+#define CONFIG_NVMEV_DEBUG
 // #define CONFIG_NVMEV_DEBUG_VERBOSE
 
 #ifdef CONFIG_NVMEV_DEBUG

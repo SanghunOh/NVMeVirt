@@ -12,7 +12,8 @@ void schedule_internal_operation(int sqid, unsigned long long nsecs_target,
 static struct cmt_entry *cmt_check(struct conv_ftl *conv_ftl, int vpn);
 static void cmt_update(struct conv_ftl *conv_ftl, uint64_t lpn, struct ppa ppa);
 static void cmt_mark_head_dirty(struct conv_ftl *conv_ftl);
-static struct ppa dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t lpn);
+static uint64_t dftl_addr_translation_user_write(struct conv_ftl *conv_ftl, uint64_t nsecs_start,
+												 struct ppa *ppa, uint64_t lpn, uint32_t io_type);
 
 static inline bool last_pg_in_wordline(struct conv_ftl *conv_ftl, struct ppa *ppa)
 {
@@ -226,6 +227,7 @@ static struct line *get_next_free_line(struct conv_ftl *conv_ftl)
 	struct line *curline = list_first_entry_or_null(&lm->free_line_list, struct line, entry);
 
 	if (!curline) {
+		NVMEV_ERROR("free line: %d, full line: %d", lm->free_line_cnt, lm->full_line_cnt);
 		NVMEV_ERROR("No free line left in VIRT !!!!\n");
 		return NULL;
 	}
@@ -336,6 +338,8 @@ static void advance_write_pointer(struct conv_ftl *conv_ftl, uint32_t io_type)
 		NVMEV_DEBUG_VERBOSE("wpp: line is moved to victim list\n");
 		NVMEV_ASSERT(wpp->curline->vpc >= 0 && wpp->curline->vpc < spp->pgs_per_line);
 		/* there must be some invalid pages in this line */
+		// NVMEV_INFO("ipc: %d, vpc: %d, pgs per line: %ld", wpp->curline->ipc, wpp->curline->vpc, spp->pgs_per_line);
+		// NVMEV_INFO("line num: %d, type: %d", wpp->curline->id, io_type);
 		NVMEV_ASSERT(wpp->curline->ipc > 0);
 		pqueue_insert(lm->victim_line_pq, wpp->curline);
 		lm->victim_line_cnt++;
@@ -343,6 +347,7 @@ static void advance_write_pointer(struct conv_ftl *conv_ftl, uint32_t io_type)
 	/* current line is used up, pick another empty line */
 	check_addr(wpp->blk, spp->blks_per_pl);
 	wpp->curline = get_next_free_line(conv_ftl);
+	NVMEV_ASSERT(wpp->curline != NULL);
 	NVMEV_DEBUG_VERBOSE("wpp: got new clean line %d\n", wpp->curline->id);
 
 	wpp->blk = wpp->curline->id;
@@ -415,6 +420,8 @@ static void conv_init_ftl(struct conv_ftl *conv_ftl, struct convparams *cpp, str
 
 	conv_ftl->ssd = ssd;
 
+	conv_ftl->gc_cnt = 0;
+
 	/* initialize maptbl */
 	init_maptbl(conv_ftl); // mapping table
 
@@ -454,8 +461,8 @@ static void conv_remove_ftl(struct conv_ftl *conv_ftl)
 static void conv_init_params(struct convparams *cpp)
 {
 	cpp->op_area_pcent = OP_AREA_PERCENT;
-	cpp->gc_thres_lines = 2; /* Need only two lines.(host write, gc)*/
-	cpp->gc_thres_lines_high = 2; /* Need only two lines.(host write, gc)*/
+	cpp->gc_thres_lines = 8; /* Need only two lines.(host write, gc)*/
+	cpp->gc_thres_lines_high = 8; /* Need only two lines.(host write, gc)*/
 	cpp->enable_gc_delay = 1;
 	cpp->pba_pcent = (int)((1 + cpp->op_area_pcent) * 100);
 }
@@ -699,9 +706,11 @@ static uint64_t gc_write_data_page(struct conv_ftl *conv_ftl, struct ppa *old_pp
 	int offset = lpn % gtd->map_per_pg;
 
 	NVMEV_ASSERT(valid_lpn(conv_ftl, lpn));
+
+	dftl_addr_translation(conv_ftl, lpn, GC_IO);
+
 	new_ppa = get_new_page(conv_ftl, GC_IO);
 
-	dftl_addr_translation(conv_ftl, lpn);
 	cmt_update(conv_ftl, lpn, new_ppa);
 	cmt_mark_head_dirty(conv_ftl);
 
@@ -755,12 +764,13 @@ static uint64_t gc_write_translation_page(struct conv_ftl *conv_ftl, struct ppa 
 	int vpn = lpn / gtd->map_per_pg;
 
 	// 아닐수도 있지 않나? 아니 valid page들이기 때문에 gtd table에 old tr_ppa 가 있어야 함
+	NVMEV_INFO("vpn: %d, lpn: %lld", vpn, lpn);
+	NVMEV_INFO("%llu %llu", gtd->tbl[vpn].ppa, old_tr_ppa->ppa);
 	NVMEV_ASSERT(gtd->tbl[vpn].ppa == old_tr_ppa->ppa);
 
 	NVMEV_ASSERT(valid_lpn(conv_ftl, lpn));
 
 	old_tr_pg = get_pg(conv_ftl->ssd, old_tr_ppa);
-
 	NVMEV_ASSERT(old_tr_pg->translation == true);
 	
 	new_tr_ppa = get_new_page(conv_ftl, GC_IO);
@@ -771,6 +781,8 @@ static uint64_t gc_write_translation_page(struct conv_ftl *conv_ftl, struct ppa 
 	if ((cmt_entry = cmt_check(conv_ftl, vpn))) {
 		/* if l2p in victim translation page is cached in cmt,
 		 copy the latest l2p to new translation page */
+
+		new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
 		memcpy(new_tr_pg->l2p, cmt_entry->l2p, sizeof(struct ppa) * gtd->map_per_pg);
 		cmt_entry->dirty = false;
 
@@ -788,6 +800,10 @@ static uint64_t gc_write_translation_page(struct conv_ftl *conv_ftl, struct ppa 
 	old_tr_pg->translation = false;
 
 	gtd->tbl[vpn] = new_tr_ppa;
+
+	set_rmap_ent(conv_ftl, lpn, &new_tr_ppa);
+
+	mark_page_valid(conv_ftl, &new_tr_ppa);
 
 	advance_write_pointer(conv_ftl, GC_IO);
 
@@ -866,7 +882,7 @@ static struct line *select_victim_line(struct conv_ftl *conv_ftl, bool force)
 // }
 
 /* here ppa identifies the block we want to clean */
-static void clean_one_flashpg(struct conv_ftl *conv_ftl, struct ppa *ppa, bool tr)
+static void clean_one_flashpg(struct conv_ftl *conv_ftl, struct ppa *ppa)
 {
 	struct ssdparams *spp = &conv_ftl->ssd->sp;
 	struct convparams *cpp = &conv_ftl->cp;
@@ -908,7 +924,7 @@ static void clean_one_flashpg(struct conv_ftl *conv_ftl, struct ppa *ppa, bool t
 		/* there shouldn't be any free page in victim blocks */
 		if (pg_iter->status == PG_VALID) {
 			/* delay the maptbl update until "write" happens */
-			if (tr)
+			if (pg_iter->translation)
 				gc_write_translation_page(conv_ftl, &ppa_copy);
 			else
 				gc_write_data_page(conv_ftl, &ppa_copy);
@@ -936,15 +952,16 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 	struct ppa ppa;
 	int flashpg;
 	bool tr = false;
+	struct line_mgmt *lm = &conv_ftl->lm;
 
 	victim_line = select_victim_line(conv_ftl, force);
 	if (!victim_line) {
 		return -1;
 	}
 
-	if (victim_line->translation) {
-		tr = true;
-	}
+	NVMEV_INFO("GC!!!: %d, vpc: %d, line num: %d", lm->free_line_cnt, victim_line->vpc, victim_line->id);
+
+	conv_ftl->gc_cnt++;
 
 	ppa.g.blk = victim_line->id;
 	NVMEV_DEBUG_VERBOSE("GC-ing line:%d,ipc=%d(%d),victim=%d,full=%d,free=%d\n", ppa.g.blk,
@@ -966,7 +983,7 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 				ppa.g.lun = lun;
 				ppa.g.pl = 0;
 				lunp = get_lun(conv_ftl->ssd, &ppa);
-				clean_one_flashpg(conv_ftl, &ppa, tr);
+				clean_one_flashpg(conv_ftl, &ppa);
 
 				if (flashpg == (spp->flashpgs_per_blk - 1)) {
 					struct convparams *cpp = &conv_ftl->cp;
@@ -992,7 +1009,7 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 
 	/* update line status */
 	mark_line_free(conv_ftl, &ppa);
-
+	NVMEV_INFO("GC END!!!: %d", lm->free_line_cnt);
 	return 0;
 }
 
@@ -1052,7 +1069,6 @@ static inline bool cmt_full(struct cmt *cmt)
 
 static inline void cmt_insert(struct cmt *cmt, struct cmt_entry *cmt_entry)
 {
-	// TODO: hash
 	hash_add(cmt->lru_hash, &cmt_entry->hnode, cmt_entry->vpn);
 
 	list_add(&cmt_entry->entry, &cmt->lru_list);
@@ -1084,35 +1100,48 @@ static inline struct ppa get_translation_ppa(struct gtd* gtd, int vpn)
 	return gtd->tbl[vpn];
 }
 
-static struct ppa dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t lpn)
+static uint64_t dftl_addr_translation_user_write(struct conv_ftl *conv_ftl, uint64_t nsecs_start, 
+												 struct ppa *ppa, uint64_t lpn, uint32_t io_type)
 {
 	struct gtd *gtd = &conv_ftl->gtd;
 	struct cmt *cmt = &conv_ftl->cmt;
 	struct cmt_entry *cmt_entry;
 	struct cmt_entry *victim_entry;
 
-	struct ppa ppa;
 	struct ppa victim_tr_ppa, new_tr_ppa, tr_ppa;
 	struct nand_page *victim_tr_pg, *new_tr_pg, *tr_pg;
 	int victim_vpn;
 	int i;
 
-	// struct nand_cmd swr = {
-	// 	.type = USER_IO,
-	// }
+	struct nand_cmd srd = {
+		.type = USER_IO,
+		.cmd = NAND_READ,
+		.stime = nsecs_start,
+		.interleave_pci_dma = true,
+	};
+
+	struct nand_cmd swr = {
+		.type = USER_IO,
+		.cmd = NAND_WRITE,
+		.interleave_pci_dma = false,
+		.xfer_size = 0;
+	}
 	int vpn = lpn / gtd->map_per_pg;
 	int offset = lpn % gtd->map_per_pg;
+	// NVMEV_INFO("ADDR TRANSLATION");
 
 	if (!(cmt_entry = cmt_check(conv_ftl, vpn))) {
 		/* miss in CMT */
+		cmt->miss_cnt++;
 		tr_ppa = get_translation_ppa(gtd, vpn);
-		// TODO: tr page read
+		
 
 		if (!mapped_ppa(&tr_ppa)) {
 			/* initial translation page */
 			// tr_ppa = get_new_page(conv_ftl, TRANSLATION_IO);
-			tr_ppa = get_new_page(conv_ftl, USER_IO);
+			tr_ppa = get_new_page(conv_ftl, io_type);
 			tr_pg = get_pg(conv_ftl->ssd, &tr_ppa);
+
 			tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
 			tr_pg->translation = true;
 
@@ -1121,10 +1150,24 @@ static struct ppa dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t lpn)
 
 			gtd->tbl[vpn] = tr_ppa;
 			// NVMEV_INFO("HERE new tr page: %lld", tr_ppa.ppa);
-			mark_page_valid(conv_ftl, &tr_ppa);
 			set_rmap_ent(conv_ftl, lpn, &tr_ppa);
 
-			advance_write_pointer(conv_ftl, USER_IO);
+			mark_page_valid(conv_ftl, &tr_ppa);
+
+			advance_write_pointer(conv_ftl, io_type);
+
+			// if (last_pg_in_wordline(conv_ftl, &tr_ppa)) {
+			// 	swr.ppa = &tr_ppa;
+
+			// 	nsecs_completed = ssd_advance_nand(conv_ftl->ssd, &swr);
+			// 	nsecs_latest = max(nsecs_completed, nsecs_latest);
+
+			// 	schedule_internal_operation(req->sq_id, nsecs_completed, wbuf,
+			// 					spp->pgs_per_oneshotpg * spp->pgsz);
+			// }
+
+			// consume_write_credit(conv_ftl);
+			// check_and_refill_write_credit(conv_ftl);
 			// TODO: write 해야하나 ?
 		}
 		else {
@@ -1145,7 +1188,7 @@ static struct ppa dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t lpn)
 				NVMEV_ASSERT(victim_tr_pg->translation == true);
 
 				// new_tr_ppa = get_new_page(conv_ftl, TRANSLATION_IO);
-				new_tr_ppa = get_new_page(conv_ftl, USER_IO);
+				new_tr_ppa = get_new_page(conv_ftl, io_type);
 				new_tr_pg = get_pg(conv_ftl->ssd, &new_tr_ppa);
 
 				NVMEV_ASSERT(new_tr_pg->l2p == NULL);
@@ -1156,25 +1199,24 @@ static struct ppa dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t lpn)
 				new_tr_pg->translation = true;
 
 				mark_page_invalid(conv_ftl, &victim_tr_ppa);
-				// NVMEV_INFO("HERE?? evict1");
 				mark_page_valid(conv_ftl, &new_tr_ppa);
 
-				// NVMEV_INFO("HERE?? evict2");
+				NVMEV_INFO("evict2 vpn: %d %lld %lld", victim_vpn, victim_tr_ppa.ppa, new_tr_ppa.ppa);
 				set_rmap_ent(conv_ftl, get_rmap_ent(conv_ftl, &victim_tr_ppa), &new_tr_ppa);
 				set_rmap_ent(conv_ftl, INVALID_LPN, &victim_tr_ppa);
 
 				// NVMEV_INFO("evict/ victim tr ppa: %lld, new tr ppa: %lld", victim_tr_ppa.ppa, new_tr_ppa.ppa);
-				// NVMEV_INFO("HERE?? evict3");
 				vfree(victim_tr_pg->l2p);
 				victim_tr_pg->l2p = NULL;
 				victim_tr_pg->translation = false;
 
-				// NVMEV_INFO("HERE?? evict4");
-				
 				// TODO: list랑 hash table에서 제거(select victim에서 하는 게 맞을듯)
 				// NVMEV_INFO("HERE?? evict5");
 				// advance_write_pointer(conv_ftl, TRANSLATION_IO);
-				advance_write_pointer(conv_ftl, USER_IO);
+				advance_write_pointer(conv_ftl, io_type);
+
+				// consume_write_credit(conv_ftl);
+				// check_and_refill_write_credit(conv_ftl);
 				// TODO: performance 반영
 				// WRITE
 				// cmt에 페이지 단위로 저장-> read 필요없음(victim 그대로 복사)
@@ -1200,16 +1242,16 @@ static struct ppa dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t lpn)
 
 		// NVMEV_INFO("insert: %d", cmt_entry->vpn);
 		cmt_insert(cmt, cmt_entry);
+		// TODO: performance read
 	}
 	else {
 		/* hit in CMT */
 		/* move to front of the lru list */
+		cmt->hit_cnt++;
 		list_move(&cmt_entry->entry, &cmt->lru_list);
 	}
-	ppa = cmt_entry->l2p[offset];
+	*ppa = cmt_entry->l2p[offset];
 	// NVMEV_INFO("ADDR TRANSLATION END");
-
-	return ppa;
 }
 
 
@@ -1260,7 +1302,7 @@ static bool conv_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvm
 		conv_ftl = &conv_ftls[start_lpn % nr_parts];
 		xfer_size = 0;
 		// prev_ppa = get_maptbl_ent(conv_ftl, start_lpn / nr_parts);
-		prev_ppa = dftl_addr_translation(conv_ftl, start_lpn / nr_parts);
+		prev_ppa = dftl_addr_translation(conv_ftl, start_lpn / nr_parts, USER_IO);
 
 		/* normal IO read path */
 		for (lpn = start_lpn; lpn <= end_lpn; lpn += nr_parts) {
@@ -1272,7 +1314,7 @@ static bool conv_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvm
 			local_lpn = lpn / nr_parts;
 
 			// cur_ppa = get_maptbl_ent(conv_ftl, local_lpn);
-			cur_ppa = dftl_addr_translation(conv_ftl, local_lpn);
+			cur_ppa = dftl_addr_translation(conv_ftl, local_lpn, USER_IO);
 			if (!mapped_ppa(&cur_ppa) || !valid_ppa(conv_ftl, &cur_ppa)) {
 				NVMEV_DEBUG_VERBOSE("lpn 0x%llx not mapped to valid ppa\n", local_lpn);
 				NVMEV_DEBUG_VERBOSE("Invalid ppa,ch:%d,lun:%d,blk:%d,pl:%d,pg:%d\n",
@@ -1336,6 +1378,7 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 
 	uint64_t nsecs_latest;
 	uint64_t nsecs_xfer_completed;
+	uint64_t nsecs_translation_completed;
 	uint32_t allocated_buf_size;
 
 	struct nand_cmd swr = {
@@ -1351,17 +1394,17 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 				__func__, start_lpn, spp->tt_pgs);
 		return false;
 	}
-	// NVMEV_INFO("WRITE");
+	NVMEV_INFO("WRITE");
 
 	allocated_buf_size = buffer_allocate(wbuf, LBA_TO_BYTE(nr_lba));
-	if (allocated_buf_size < LBA_TO_BYTE(nr_lba))
+	if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
+		NVMEV_INFO("allocated buf size; %d", allocated_buf_size);
 		return false;
+	}
 
 	nsecs_latest =
 		ssd_advance_write_buffer(conv_ftl->ssd, req->nsecs_start, LBA_TO_BYTE(nr_lba));
 	nsecs_xfer_completed = nsecs_latest;
-
-	swr.stime = nsecs_latest;
 
 	for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
 		uint64_t local_lpn;
@@ -1373,7 +1416,8 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 		conv_ftl = &conv_ftls[lpn % nr_parts];
 		local_lpn = lpn / nr_parts;
 		
-		ppa = dftl_addr_translation(conv_ftl, local_lpn);
+		// TODO: read time 만 먹여야됨. 안에서 write time은 write buffer로 (internal operation)
+		nsecs_translation_completed = dftl_addr_translation_user_write(conv_ftl, nsecs_latest, &ppa, local_lpn, USER_IO);
 
 		// ppa = get_maptbl_ent(conv_ftl, local_lpn); // Check whether the given LPN has been written before
 		if (mapped_ppa(&ppa)) {
@@ -1400,6 +1444,7 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 
 		/* Aggregate write io in flash page */
 		if (last_pg_in_wordline(conv_ftl, &new_data_ppa)) {
+			swr.stime = nsecs_translation_completed;
 			swr.ppa = &new_data_ppa;
 
 			nsecs_completed = ssd_advance_nand(conv_ftl->ssd, &swr);
@@ -1444,6 +1489,17 @@ static void conv_flush(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 	return;
 }
 
+static void conv_print_cmt(struct nvmev_ns *ns, struct nvmev_request *req)
+{
+	struct conv_ftl *conv_ftls = (struct conv_ftl *)ns->ftls;
+	struct conv_ftl *conv_ftl = &conv_ftls[0];
+	struct cmt *cmt = &conv_ftl->cmt;
+
+	NVMEV_INFO("----------------- CMT -----------------");
+	NVMEV_INFO("CMT hit: %lld, CMT miss: %lld", cmt->hit_cnt, cmt->miss_cnt);
+	NVMEV_INFO("GC: %d", conv_ftl->gc_cnt);
+}
+
 bool conv_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
 {
 	struct nvme_command *cmd = req->cmd;
@@ -1461,6 +1517,9 @@ bool conv_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struc
 		break;
 	case nvme_cmd_flush:
 		conv_flush(ns, req, ret);
+		break;
+	case nvme_cmd_print_cmt:
+		conv_print_cmt(ns, req);
 		break;
 	default:
 		NVMEV_ERROR("%s: command not implemented: %s (0x%x)\n", __func__,
