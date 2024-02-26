@@ -1,0 +1,12 @@
+[global]
+bs=4K
+iodepth=16
+direct=1
+group_reporting
+name=ssd
+filename=./mount
+time_based=1
+runtime=1200
+
+[job1]
+rw=randwrite
