@@ -352,7 +352,8 @@ static void conv_init_ftl(struct conv_ftl *conv_ftl, struct convparams *cpp, str
 	prepare_write_pointer(conv_ftl, GC_IO);
 
 	init_write_flow_control(conv_ftl);
-
+	
+	conv_ftl->gc_cnt = 0;
 	NVMEV_INFO("Init FTL instance with %d channels (%ld pages)\n", conv_ftl->ssd->sp.nchs,
 		   conv_ftl->ssd->sp.tt_pgs);
 
@@ -764,6 +765,8 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 		return -1;
 	}
 
+	conv_ftl->gc_cnt++;
+
 	ppa.g.blk = victim_line->id;
 	NVMEV_DEBUG_VERBOSE("GC-ing line:%d,ipc=%d(%d),victim=%d,full=%d,free=%d\n", ppa.g.blk,
 		    victim_line->ipc, victim_line->vpc, conv_ftl->lm.victim_line_cnt,
@@ -1045,6 +1048,18 @@ static void conv_flush(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 	return;
 }
 
+static void conv_print_cmt(struct nvmev_ns *ns, struct nvmev_request *req)
+{
+       struct conv_ftl *conv_ftls = (struct conv_ftl *)ns->ftls;
+       struct conv_ftl *conv_ftl = &conv_ftls[0];
+    //    struct cmt *cmt = &conv_ftl->cmt;
+
+       NVMEV_INFO("----------------- CMT -----------------");
+    //    NVMEV_INFO("CMT hit: %lld, CMT miss: %lld", cmt->hit_cnt, cmt->miss_cnt);
+       NVMEV_INFO("GC: %d", conv_ftl->gc_cnt);
+}
+
+
 bool conv_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
 {
 	struct nvme_command *cmd = req->cmd;
@@ -1060,6 +1075,9 @@ bool conv_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struc
 		if (!conv_read(ns, req, ret))
 			return false;
 		break;
+	case nvme_cmd_print_cmt:
+        conv_print_cmt(ns, req);
+        break;
 	case nvme_cmd_flush:
 		conv_flush(ns, req, ret);
 		break;
