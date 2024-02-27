@@ -182,7 +182,7 @@ static void init_cmt(struct conv_ftl *conv_ftl)
 	struct cmt *cmt = &conv_ftl->cmt;
 
 	// CMT SIZE
-	cmt->tt_tpgs = 50;
+	cmt->tt_tpgs = 64;
 	cmt->entry_cnt = 0;
 
 	INIT_LIST_HEAD(&cmt->lru_list);
@@ -234,7 +234,7 @@ static struct line *get_next_free_line(struct conv_ftl *conv_ftl)
 
 	list_del_init(&curline->entry);
 	lm->free_line_cnt--;
-	NVMEV_DEBUG("%s: free_line_cnt %d\n", __func__, lm->free_line_cnt);
+	// NVMEV_DEBUG("%s: free_line_cnt %d\n", __func__, lm->free_line_cnt);
 	return curline;
 }
 
@@ -440,6 +440,8 @@ static void conv_init_ftl(struct conv_ftl *conv_ftl, struct convparams *cpp, str
 	init_gtd(conv_ftl);
 
 	init_cmt(conv_ftl);
+
+	conv_ftl->gc_cnt = 0;
 
 	init_write_flow_control(conv_ftl);
 
@@ -959,7 +961,9 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 		return -1;
 	}
 
-	NVMEV_INFO("GC!!!: %d, vpc: %d, line num: %d", lm->free_line_cnt, victim_line->vpc, victim_line->id);
+	conv_ftl->gc_cnt++;
+
+	// NVMEV_INFO("GC!!!: %d, vpc: %d, line num: %d", lm->free_line_cnt, victim_line->vpc, victim_line->id);
 
 	conv_ftl->gc_cnt++;
 
@@ -1009,7 +1013,7 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 
 	/* update line status */
 	mark_line_free(conv_ftl, &ppa);
-	NVMEV_INFO("GC END!!!: %d", lm->free_line_cnt);
+	// NVMEV_INFO("GC END!!!: %d", lm->free_line_cnt);
 	return 0;
 }
 
@@ -1177,7 +1181,7 @@ static uint64_t dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t nsecs_
 		NVMEV_ASSERT(tr_pg->translation == true);
 		NVMEV_ASSERT(tr_pg->l2p != NULL);
 
-		NVMEV_INFO("before TPAGE READ: %lld, %lld", srd.stime, srd.stime + spp->fw_4kb_rd_lat);
+		// NVMEV_INFO("before TPAGE READ: %lld, %lld", srd.stime, srd.stime + spp->fw_4kb_rd_lat);
 		/* read translation page if CMT miss */
 		srd.ppa = &tr_ppa;
 		// srd.stime += spp->fw_4kb_rd_lat;
@@ -1208,7 +1212,7 @@ static uint64_t dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t nsecs_
 				mark_page_invalid(conv_ftl, &victim_tr_ppa);
 				mark_page_valid(conv_ftl, &new_tr_ppa);
 
-				NVMEV_INFO("evict2 vpn: %d %lld %lld", victim_vpn, victim_tr_ppa.ppa, new_tr_ppa.ppa);
+				// NVMEV_INFO("evict2 vpn: %d %lld %lld", victim_vpn, victim_tr_ppa.ppa, new_tr_ppa.ppa);
 				set_rmap_ent(conv_ftl, get_rmap_ent(conv_ftl, &victim_tr_ppa), &new_tr_ppa);
 				set_rmap_ent(conv_ftl, INVALID_LPN, &victim_tr_ppa);
 
@@ -1225,12 +1229,12 @@ static uint64_t dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t nsecs_
 
 				swr.stime = nsecs_read;
 				swr.ppa = &new_tr_ppa;
-				if (last_pg_in_wordline(conv_ftl, &new_tr_ppa) && io_type == USER_IO) {					
+				if (last_pg_in_wordline(conv_ftl, &new_tr_ppa) && io_type == USER_IO) {
 					schedule_internal_operation(sqid, nsecs_xfer_completed, wbuf,
 												spp->pgs_per_oneshotpg * spp->pgsz);
 				}
 				nsecs_xfer_completed = ssd_advance_nand(conv_ftl->ssd, &swr);
-				NVMEV_INFO("TPAGE READ: %lld, after write: %lld", nsecs_read, nsecs_xfer_completed);
+				// NVMEV_INFO("TPAGE READ: %lld, after write: %lld", nsecs_read, nsecs_xfer_completed);
 
 				consume_write_credit(conv_ftl);
 				check_and_refill_write_credit(conv_ftl);
@@ -1298,7 +1302,7 @@ static bool conv_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvm
 		.interleave_pci_dma = true,
 	};
 
-	NVMEV_INFO("READ");
+	// NVMEV_INFO("READ");
 
 	NVMEV_ASSERT(conv_ftls);
 	NVMEV_DEBUG_VERBOSE("%s: start_lpn=%lld, len=%lld, end_lpn=%lld", __func__, start_lpn, nr_lba, end_lpn);
@@ -1422,7 +1426,7 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 	if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
 		return false;
 	}
-	NVMEV_INFO("WRITE");
+	// NVMEV_INFO("WRITE");
 
 	nsecs_latest =
 		ssd_advance_write_buffer(conv_ftl->ssd, req->nsecs_start, LBA_TO_BYTE(nr_lba));
@@ -1467,9 +1471,9 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 
 		/* Aggregate write io in flash page */
 		if (last_pg_in_wordline(conv_ftl, &new_data_ppa)) {
-			NVMEV_INFO("latest: %lld, translation fin: %lld", nsecs_latest, nsecs_translation_completed);
-			swr.stime = nsecs_latest;
-			// swr.stime = max(nsecs_latest, nsecs_translation_completed);
+			// NVMEV_INFO("latest: %lld, translation fin: %lld", nsecs_latest, nsecs_translation_completed);
+			// swr.stime = nsecs_latest;
+			swr.stime = max(nsecs_latest, nsecs_translation_completed);
 			swr.ppa = &new_data_ppa;
 
 			nsecs_completed = ssd_advance_nand(conv_ftl->ssd, &swr);
@@ -1490,7 +1494,7 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 		ret->nsecs_target = nsecs_latest;
 	} else {
 		/* Early completion */
-		ret->nsecs_target = nsecs_latest;
+		ret->nsecs_target = nsecs_xfer_completed;
 	}
 	ret->status = NVME_SC_SUCCESS;
 

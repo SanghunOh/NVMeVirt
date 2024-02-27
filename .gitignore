@@ -171,3 +171,4 @@ sphinx_*/
 
 # Local makefile
 Makefile.local
+*.trace

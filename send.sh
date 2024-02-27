@@ -1,1 +1,1 @@
-scp -P 12023 -i ~/.ssh/nctr241.pem nvmev.ko nv@localhost:~/
+scp -P 12023 -i ~/.ssh/nctr241.pem $1 nv@localhost:~/
