@@ -766,10 +766,10 @@ static uint64_t gc_write_translation_page(struct conv_ftl *conv_ftl, struct ppa 
 	uint64_t lpn = get_rmap_ent(conv_ftl, old_tr_ppa);
 	int vpn = lpn / gtd->map_per_pg;
 
-	// 아닐수도 있지 않나? 아니 valid page들이기 때문에 gtd table에 old tr_ppa 가 있어야 함
-	NVMEV_INFO("vpn: %d, lpn: %lld", vpn, lpn);
-	NVMEV_INFO("%llu %llu", gtd->tbl[vpn].ppa, old_tr_ppa->ppa);
-	// NVMEV_ASSERT(gtd->tbl[vpn].ppa == old_tr_ppa->ppa);
+	uint64_t nsecs_read = 0;
+
+	// NVMEV_INFO("vpn: %d, lpn: %lld", vpn, lpn);
+	// NVMEV_INFO("%llu %llu", gtd->tbl[vpn].ppa, old_tr_ppa->ppa);
 
 	NVMEV_ASSERT(valid_lpn(conv_ftl, lpn));
   
@@ -794,7 +794,17 @@ static uint64_t gc_write_translation_page(struct conv_ftl *conv_ftl, struct ppa 
 	else {
 		/* if l2p in victim translation page is not cached in cmt,
 		 then need to copy it */
+		
+		struct nand_cmd gcr = {
+			.type = GC_IO,
+			.cmd = NAND_READ,
+			.stime = 0,
+			.interleave_pci_dma = true,
+			.ppa = &new_tr_ppa,
+			.xfer_size = spp->pgsz,
+		};
 		new_tr_pg->l2p = old_tr_pg->l2p;
+		nsecs_read = ssd_advance_nand(conv_ftl->ssd, &gcr);
 	}
 
 	old_tr_pg->l2p = NULL;
@@ -813,7 +823,7 @@ static uint64_t gc_write_translation_page(struct conv_ftl *conv_ftl, struct ppa 
 		struct nand_cmd gcw = {
 			.type = GC_IO,
 			.cmd = NAND_NOP,
-			.stime = 0,
+			.stime = nsecs_read,
 			.interleave_pci_dma = false,
 			.ppa = &new_tr_ppa,
 		};
@@ -1216,7 +1226,7 @@ static uint64_t dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t nsecs_
 				set_rmap_ent(conv_ftl, get_rmap_ent(conv_ftl, &victim_tr_ppa), &new_tr_ppa);
 				set_rmap_ent(conv_ftl, INVALID_LPN, &victim_tr_ppa);
 
-				// NVMEV_INFO("evict/ victim tr ppa: %lld, new tr ppa: %lld", victim_tr_ppa.ppa, new_tr_ppa.ppa);
+				// NVMEV_INFO("evict victim tr ppa: %lld, new tr ppa: %lld", victim_tr_ppa.ppa, new_tr_ppa.ppa);
 				vfree(victim_tr_pg->l2p);
 				victim_tr_pg->l2p = NULL;
 				victim_tr_pg->translation = false;
@@ -1258,17 +1268,18 @@ static uint64_t dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t nsecs_
 
 		// NVMEV_INFO("insert: %d", cmt_entry->vpn);
 		cmt_insert(cmt, cmt_entry);
-		// NVMEV_INFO("MISS");
+		// NVMEV_INFO("MISS: %d", vpn);
 	}
 	else {
 		/* hit in CMT */
 		/* move to front of the lru list */
-		// NVMEV_INFO("HIT");
+		// NVMEV_INFO("HIT: %d", vpn);
 		cmt->hit_cnt++;
 		list_move(&cmt_entry->entry, &cmt->lru_list);
 	}
 	*ppa = cmt_entry->l2p[offset];
 	// NVMEV_INFO("ADDR TRANSLATION END");
+	// NVMEV_INFO("%lld %lld", cmd_stime, nsecs_xfer_completed);
 
 	return nsecs_xfer_completed;
 }
@@ -1426,7 +1437,6 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 	if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
 		return false;
 	}
-	// NVMEV_INFO("WRITE");
 
 	nsecs_latest =
 		ssd_advance_write_buffer(conv_ftl->ssd, req->nsecs_start, LBA_TO_BYTE(nr_lba));
