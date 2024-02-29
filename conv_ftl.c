@@ -13,7 +13,7 @@ static struct cmt_entry *cmt_check(struct conv_ftl *conv_ftl, int vpn);
 static struct cmt_entry *cmt_update(struct conv_ftl *conv_ftl, uint64_t lpn, struct ppa ppa);
 static void cmt_mark_head_dirty(struct conv_ftl *conv_ftl);
 static uint64_t dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t nsecs_start, uint32_t sqid,
-												 struct ppa *ppa, uint64_t lpn, uint32_t io_type, int *nand_write);
+												 struct ppa *ppa, uint64_t lpn, uint32_t io_type, int *nand_write, bool read);
 static void cmt_print(struct conv_ftl *conv_ftl);
 static inline struct ppa get_translation_ppa(struct gtd* gtd, int vpn);
 
@@ -193,6 +193,8 @@ static void init_cmt(struct conv_ftl *conv_ftl)
 	cmt->hit_cnt = 0;
 	cmt->miss_cnt = 0;
 	cmt->cold_miss_cnt = 0;
+	cmt->read_miss_cnt = 0;
+	cmt->write_miss_cnt = 0;
 	cmt->flush_cnt = 0;
 
 	NVMEV_INFO("CMT size: %uKiB", BYTE_TO_KB(cmt->tt_tpgs * conv_ftl->ssd->sp.pgsz));
@@ -725,7 +727,7 @@ static uint64_t gc_write_data_page(struct conv_ftl *conv_ftl, struct ppa *old_pp
 	new_tr_pg = get_pg(conv_ftl->ssd, &new_tr_ppa);
 
 	if ((cmt_entry = cmt_check(conv_ftl, vpn))) {
-
+		cmt->hit_cnt++;
 		cmt_entry->l2p[offset] = new_ppa;
 
 		new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
@@ -735,6 +737,7 @@ static uint64_t gc_write_data_page(struct conv_ftl *conv_ftl, struct ppa *old_pp
 		vfree(old_tr_pg->l2p);
 	}
 	else {
+		cmt->miss_cnt++;
 		old_tr_pg->l2p[offset] = new_ppa;
 				
 		new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
@@ -809,6 +812,7 @@ static uint64_t gc_write_translation_page(struct conv_ftl *conv_ftl, struct ppa 
 {
 	struct ssdparams *spp = &conv_ftl->ssd->sp;
 	struct convparams *cpp = &conv_ftl->cp;
+	struct cmt *cmt = &conv_ftl->cmt;
 	struct ppa new_tr_ppa;
 	struct cmt_entry *cmt_entry;
 
@@ -829,6 +833,7 @@ static uint64_t gc_write_translation_page(struct conv_ftl *conv_ftl, struct ppa 
 	if ((cmt_entry = cmt_check(conv_ftl, vpn))) {
 		/* if l2p in victim translation page is cached in cmt,
 		 copy the latest l2p to new translation page */
+		 cmt->hit_cnt++;
 
 		new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
 		memcpy(new_tr_pg->l2p, cmt_entry->l2p, sizeof(struct ppa) * gtd->map_per_pg);
@@ -848,6 +853,7 @@ static uint64_t gc_write_translation_page(struct conv_ftl *conv_ftl, struct ppa 
 			.ppa = old_tr_ppa,
 			.xfer_size = spp->pgsz,
 		};
+		cmt->miss_cnt++;
 		new_tr_pg->l2p = old_tr_pg->l2p;
 		nsecs_read = ssd_advance_nand(conv_ftl->ssd, &gcr);
 	}
@@ -1152,7 +1158,7 @@ static inline struct ppa get_translation_ppa(struct gtd* gtd, int vpn)
 }
 
 static uint64_t dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t nsecs_start, uint32_t sqid,
-												 struct ppa *ppa, uint64_t lpn, uint32_t io_type, int* nand_write)
+												 struct ppa *ppa, uint64_t lpn, uint32_t io_type, int* nand_write, bool read)
 {
 	struct ssdparams *spp = &conv_ftl->ssd->sp;
 	struct buffer *wbuf = conv_ftl->ssd->write_buffer;
@@ -1198,6 +1204,10 @@ static uint64_t dftl_addr_translation(struct conv_ftl *conv_ftl, uint64_t nsecs_
 		// NVMEV_INFO("MISS vpn: %d, offset: %d", vpn, offset);
 		
 		cmt->miss_cnt++;
+		if (read)
+			cmt->read_miss_cnt++;
+		else
+			cmt->write_miss_cnt++;
 		tr_ppa = get_translation_ppa(gtd, vpn);
 
 		if (!mapped_ppa(&tr_ppa)) {
@@ -1396,7 +1406,7 @@ static bool conv_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvm
 		nand_write = 0;
 		// TODO: fix req->nsecs_start
 		nsecs_translation_completed = dftl_addr_translation(conv_ftl, nsecs_start, req->sq_id, 
-															&prev_ppa, start_lpn / nr_parts, USER_IO, &nand_write);
+															&prev_ppa, start_lpn / nr_parts, USER_IO, &nand_write, true);
 
 		/* normal IO read path */
 		for (lpn = start_lpn; lpn <= end_lpn; lpn += nr_parts) {
@@ -1408,7 +1418,7 @@ static bool conv_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvm
 			local_lpn = lpn / nr_parts;
 
 			nsecs_translation_completed = dftl_addr_translation(conv_ftl, nsecs_start, req->sq_id,
-																&cur_ppa, local_lpn, USER_IO, &nand_write);
+																&cur_ppa, local_lpn, USER_IO, &nand_write, true);
 			// for (j = 0; j < nand_write; j++) {
 			// 	consume_write_credit(conv_ftl);
 			// 	check_and_refill_write_credit(conv_ftl);
@@ -1528,7 +1538,7 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 
 		nand_write = 0;		
 		nsecs_translation_completed = dftl_addr_translation(conv_ftl, nsecs_start, req->sq_id,
-															&ppa, local_lpn, USER_IO, &nand_write);
+															&ppa, local_lpn, USER_IO, &nand_write, false);
 
 		// ppa = get_maptbl_ent(conv_ftl, local_lpn); // Check whether the given LPN has been written before
 		if (mapped_ppa(&ppa)) {
@@ -1616,6 +1626,7 @@ static void conv_print_cmt(struct nvmev_ns *ns, struct nvmev_request *req)
 
 	NVMEV_INFO("----------------- CMT -----------------");
 	NVMEV_INFO("CMT hit: %lld, CMT miss: %lld", cmt->hit_cnt, cmt->miss_cnt);
+	NVMEV_INFO("CMT read miss: %lld, write miss: %lld", cmt->read_miss_cnt, cmt->write_miss_cnt);
 	NVMEV_INFO("GC: %d", conv_ftl->gc_cnt);
 	NVMEV_INFO("flush: %lld, cold miss: %lld", cmt->flush_cnt, cmt->cold_miss_cnt);
 	cmt_print(conv_ftl);

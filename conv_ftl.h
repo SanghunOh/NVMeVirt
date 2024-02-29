@@ -81,6 +81,8 @@ struct cmt {
 
 	uint64_t hit_cnt;
 	uint64_t miss_cnt;
+	uint64_t read_miss_cnt;
+	uint64_t write_miss_cnt;
 	uint64_t cold_miss_cnt;
 	uint64_t flush_cnt;
 
