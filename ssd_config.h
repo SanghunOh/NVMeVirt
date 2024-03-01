@@ -111,9 +111,9 @@ static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 #define MDTS (6)
 #define CELL_MODE (CELL_MODE_MLC)
 
-#define SSD_PARTITIONS (4)
+#define SSD_PARTITIONS (1)
 #define NAND_CHANNELS (8)
-#define LUNS_PER_NAND_CH (2)
+#define LUNS_PER_NAND_CH (8) // 8 for 16GB
 #define PLNS_PER_LUN (1)
 #define FLASH_PAGE_SIZE KB(32)
 #define ONESHOT_PAGE_SIZE (FLASH_PAGE_SIZE * 1)

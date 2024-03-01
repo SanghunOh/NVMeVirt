@@ -7,7 +7,7 @@
 #include "pqueue/pqueue.h"
 #include "ssd_config.h"
 #include "ssd.h"
-#include "conv_ftl.h"
+// #include "conv_ftl.h"
 
 struct dftlparams {
 	uint32_t gc_thres_lines;
@@ -15,69 +15,96 @@ struct dftlparams {
 	bool enable_gc_delay;
 
 	double op_area_pcent;
-	int pba_pcent; /* (physical space / logical space) * 100*/
-	
-	int entries_per_tpage;
-	int tt_tpages;
-	int tt_tblks;
-	int tt_tlines;
+	int pba_pcent; /* (physical space / logical space) * 100 */
 };
 
-// struct line {
-// 	int id; /* line id, the same as corresponding block id */
-// 	int ipc; /* invalid page count in this line */
-// 	int vpc; /* valid page count in this line */
-// 	struct list_head entry;
-// 	/* position in the priority queue for victim lines */
-// 	size_t pos;
-// };
+
+struct dftl_line {
+	int id; /* line id, the same as corresponding block id */
+	int ipc; /* invalid page count in this line */
+	int vpc; /* valid page count in this line */
+	struct list_head entry;
+	/* position in the priority queue for victim lines */
+	size_t pos;
+
+	bool translation;
+};
 
 /* wp: record next write addr */
-// struct write_pointer {
-// 	struct line *curline;
-// 	uint32_t ch;
-// 	uint32_t lun;
-// 	uint32_t pg;
-// 	uint32_t blk;
-// 	uint32_t pl;
-// };
+struct dftl_write_pointer {
+	struct dftl_line *curline;
+	uint32_t ch;
+	uint32_t lun;
+	uint32_t pg;
+	uint32_t blk;
+	uint32_t pl;
+};
 
-// struct line_mgmt {
-// 	struct line *lines;
+struct dftl_line_mgmt {
+	struct dftl_line *lines;
 
-// 	/* free line list, we only need to maintain a list of blk numbers */
-// 	struct list_head free_line_list;
-// 	pqueue_t *victim_line_pq;
-// 	struct list_head full_line_list;
+	/* free line list, we only need to maintain a list of blk numbers */
+	struct list_head free_line_list;
+	pqueue_t *victim_line_pq;
+	struct list_head full_line_list;
 
-// 	uint32_t tt_lines;
-// 	uint32_t free_line_cnt;
-// 	uint32_t victim_line_cnt;
-// 	uint32_t full_line_cnt;
-// };
+	uint32_t tt_lines;
+	uint32_t free_line_cnt;
+	uint32_t victim_line_cnt;
+	uint32_t full_line_cnt;
 
-// struct write_flow_control {
-// 	uint32_t write_credits;
-// 	uint32_t credits_to_refill;
-// };
+	int translation_line_cnt;
+};
 
-// struct gtd {
-// 	struct ppa *table;
-// };
+struct dftl_write_flow_control {
+	uint32_t write_credits;
+	uint32_t credits_to_refill;
+};
+
+struct gtd {
+	int map_per_pg;
+	int tt_tpgs;
+	struct ppa *tbl;
+};
+
+struct cmt_entry {
+	int vpn;
+	struct ppa *l2p;
+	bool dirty;
+
+	struct hlist_node hnode;
+	struct list_head entry;
+};
+
+struct cmt {
+	int tt_tpgs;
+	int entry_cnt;
+
+	uint64_t hit_cnt;
+	uint64_t miss_cnt;
+	uint64_t read_miss_cnt;
+	uint64_t write_miss_cnt;
+	uint64_t cold_miss_cnt;
+	uint64_t flush_cnt;
+
+	struct list_head lru_list;
+	DECLARE_HASHTABLE(lru_hash, 10);
+};
 
 struct dftl {
 	struct ssd *ssd;
 
 	struct dftlparams dp;
-	struct ppa *maptbl; /* page level mapping table */
+	// struct ppa *maptbl; /* page level mapping table */
 	uint64_t *rmap; /* reverse mapptbl, assume it's stored in OOB */
-	struct write_pointer wp;
-	// struct write_pointer translation_wp;
-	struct write_pointer gc_wp;
-	struct line_mgmt lm;
-	struct write_flow_control wfc;
+	struct dftl_write_pointer wp;
+	struct dftl_write_pointer gc_wp;
+	struct dftl_line_mgmt lm;
+	struct dftl_write_flow_control wfc;
 
-	// struct gtd gtd;
+	struct gtd gtd;
+	struct cmt cmt;
+	int gc_cnt;
 };
 
 void dftl_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,

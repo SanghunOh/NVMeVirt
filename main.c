@@ -21,7 +21,7 @@
 #include "zns_ftl.h"
 #include "simple_ftl.h"
 #include "kv_ftl.h"
-#include "dftl.h"
+// #include "dftl.h"
 #include "dma.h"
 
 /****************************************************************
@@ -520,8 +520,8 @@ void NVMEV_NAMESPACE_INIT(struct nvmev_dev *nvmev_vdev)
 			simple_init_namespace(&ns[i], i, size, ns_addr, disp_no);
 		else if (NS_SSD_TYPE(i) == SSD_TYPE_CONV)
 			conv_init_namespace(&ns[i], i, size, ns_addr, disp_no);
-		else if (NS_SSD_TYPE(i) == SSD_TYPE_DFTL)
-			dftl_init_namespace(&ns[i], i, size, ns_addr, disp_no);
+		// else if (NS_SSD_TYPE(i) == SSD_TYPE_DFTL)
+		// 	dftl_init_namespace(&ns[i], i, size, ns_addr, disp_no);
 		else if (NS_SSD_TYPE(i) == SSD_TYPE_ZNS)
 			zns_init_namespace(&ns[i], i, size, ns_addr, disp_no);
 		else if (NS_SSD_TYPE(i) == SSD_TYPE_KV)
@@ -550,8 +550,8 @@ void NVMEV_NAMESPACE_FINAL(struct nvmev_dev *nvmev_vdev)
 			simple_remove_namespace(&ns[i]);
 		else if (NS_SSD_TYPE(i) == SSD_TYPE_CONV)
 			conv_remove_namespace(&ns[i]);
-		else if (NS_SSD_TYPE(i) == SSD_TYPE_DFTL)
-			dftl_remove_namespace(&ns[i]);
+		// else if (NS_SSD_TYPE(i) == SSD_TYPE_DFTL)
+		// 	dftl_remove_namespace(&ns[i]);
 		else if (NS_SSD_TYPE(i) == SSD_TYPE_ZNS)
 			zns_remove_namespace(&ns[i]);
 		else if (NS_SSD_TYPE(i) == SSD_TYPE_KV)
