@@ -370,8 +370,8 @@ static void conv_remove_ftl(struct conv_ftl *conv_ftl)
 static void conv_init_params(struct convparams *cpp)
 {
 	cpp->op_area_pcent = OP_AREA_PERCENT;
-	cpp->gc_thres_lines = 2; /* Need only two lines.(host write, gc)*/
-	cpp->gc_thres_lines_high = 2; /* Need only two lines.(host write, gc)*/
+	cpp->gc_thres_lines = 8; /* Need only two lines.(host write, gc)*/
+	cpp->gc_thres_lines_high = 8; /* Need only two lines.(host write, gc)*/
 	cpp->enable_gc_delay = 1;
 	cpp->pba_pcent = (int)((1 + cpp->op_area_pcent) * 100);
 }
@@ -764,6 +764,7 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 	if (!victim_line) {
 		return -1;
 	}
+	NVMEV_INFO("%d %d", conv_ftl->gc_cnt, conv_ftl->lm.free_line_cnt);
 
 	conv_ftl->gc_cnt++;
 
@@ -1013,8 +1014,8 @@ static bool conv_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 						    spp->pgs_per_oneshotpg * spp->pgsz);
 		}
 
-		consume_write_credit(conv_ftl);
-		check_and_refill_write_credit(conv_ftl);
+		// consume_write_credit(conv_ftl);
+		// check_and_refill_write_credit(conv_ftl);
 	}
 
 	if ((cmd->rw.control & NVME_RW_FUA) || (spp->write_early_completion == 0)) {
@@ -1063,6 +1064,8 @@ static void conv_print_cmt(struct nvmev_ns *ns, struct nvmev_request *req)
 bool conv_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
 {
 	struct nvme_command *cmd = req->cmd;
+	struct conv_ftl *conv_ftls = (struct conv_ftl *)ns->ftls;
+	struct conv_ftl *conv_ftl = &conv_ftls[0];
 
 	NVMEV_ASSERT(ns->csi == NVME_CSI_NVM);
 
@@ -1085,6 +1088,10 @@ bool conv_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struc
 		NVMEV_ERROR("%s: command not implemented: %s (0x%x)\n", __func__,
 				nvme_opcode_string(cmd->common.opcode), cmd->common.opcode);
 		break;
+	}
+
+	while(should_gc_high(conv_ftl)) {
+		do_gc(conv_ftl, true);
 	}
 
 	return true;
