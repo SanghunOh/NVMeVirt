@@ -99,6 +99,8 @@ struct dftl {
 	uint64_t *rmap; /* reverse mapptbl, assume it's stored in OOB */
 	struct dftl_write_pointer wp;
 	struct dftl_write_pointer gc_wp;
+	struct dftl_write_pointer translation_wp;
+	struct dftl_write_pointer translation_gc_wp;
 	struct dftl_line_mgmt lm;
 	struct dftl_write_flow_control wfc;
 
