@@ -4,9 +4,6 @@
 #include "ssd.h"
 #include "zns_ftl.h"
 
-void schedule_internal_operation(int sqid, unsigned long long nsecs_target,
-				 struct buffer *write_buffer, size_t buffs_to_release);
-
 static inline uint32_t __nr_lbas_from_rw_cmd(struct nvme_rw_command *cmd)
 {
 	return cmd->length + 1;
@@ -161,8 +158,10 @@ static bool __zns_write(struct zns_ftl *zns_ftl, struct nvmev_request *req,
 	}
 	case ZONE_STATE_FULL:
 		status = NVME_SC_ZNS_ERR_FULL;
+		goto out;
 	case ZONE_STATE_READ_ONLY:
 		status = NVME_SC_ZNS_ERR_READ_ONLY;
+		goto out;
 	case ZONE_STATE_OFFLINE:
 		status = NVME_SC_ZNS_ERR_OFFLINE;
 		goto out;

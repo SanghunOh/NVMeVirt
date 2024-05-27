@@ -61,8 +61,8 @@
 #define US_PER_SEC(s) (MS_PER_SEC(s) * 1000)
 #define NS_PER_SEC(s) (US_PER_SEC(s) * 1000)
 
-#define LBA_TO_BYTE(lba) ((lba) << 9)
-#define BYTE_TO_LBA(byte) ((byte) >> 9)
+#define LBA_TO_BYTE(lba) ((lba) << LBA_BITS)
+#define BYTE_TO_LBA(byte) ((byte) >> LBA_BITS)
 
 #define BITMASK32_ALL (0xFFFFFFFF)
 #define BITMASK64_ALL (0xFFFFFFFFFFFFFFFF)
@@ -295,6 +295,9 @@ void nvmev_proc_admin_sq(int new_db, int old_db);
 void nvmev_proc_admin_cq(int new_db, int old_db);
 
 // OPS I/O QUEUE
+struct buffer;
+void schedule_internal_operation(int sqid, unsigned long long nsecs_target,
+				struct buffer *write_buffer, size_t buffs_to_release);
 void NVMEV_IO_WORKER_INIT(struct nvmev_dev *nvmev_vdev);
 void NVMEV_IO_WORKER_FINAL(struct nvmev_dev *nvmev_vdev);
 int nvmev_proc_io_sq(int qid, int new_db, int old_db);
