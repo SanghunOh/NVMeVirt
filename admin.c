@@ -283,13 +283,20 @@ static void __nvmev_admin_identify_namespace(int eid)
 	ns->lbaf[6].ds = 12;
 	ns->lbaf[6].rp = NVME_LBAF_RP_BEST;
 
-	ns->nsze = (nvmev_vdev->ns[nsid].size >> ns->lbaf[ns->flbas].ds);
+	if (LBA_BITS == 9) {
+		ns->flbas = 0;
+	} else if (LBA_BITS == 12) {
+		ns->flbas = 3;
+	} else {
+		BUG();
+	}
 
+	ns->nlbaf = 6;
+	ns->dps = 0;
+
+	ns->nsze = (nvmev_vdev->ns[nsid].size >> ns->lbaf[ns->flbas].ds);
 	ns->ncap = ns->nsze;
 	ns->nuse = ns->nsze;
-	ns->nlbaf = 6;
-	ns->flbas = 0;
-	ns->dps = 0;
 
 	__make_cq_entry(eid, NVME_SC_SUCCESS);
 }
@@ -341,6 +348,10 @@ static void __nvmev_admin_identify_zns_namespace(int eid)
 	struct zns_ftl *zns_ftl = (struct zns_ftl *)nvmev_vdev->ns[nsid].ftls;
 	struct znsparams *zpp = &zns_ftl->zp;
 
+	if (NS_SSD_TYPE(nsid) != SSD_TYPE_ZNS) {
+		__make_cq_entry(eid, NVME_SC_SUCCESS);
+		return;
+	}
 	BUG_ON(nvmev_vdev->ns[nsid].csi != NVME_CSI_ZNS);
 
 	ns = prp_address(cmd->prp1);
@@ -560,6 +571,7 @@ static void __nvmev_proc_admin_req(int entry_id)
 		break;
 	case nvme_admin_identify:
 		__nvmev_admin_identify(entry_id);
+		break;
 	case nvme_admin_abort_cmd:
 		break;
 	case nvme_admin_set_features:

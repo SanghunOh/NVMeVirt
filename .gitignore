@@ -10,6 +10,8 @@
 #
 # Normal rules (sorted alphabetically)
 #
+
+*.trace
 .*
 *.a
 *.asn1.[ch]
