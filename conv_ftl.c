@@ -301,9 +301,9 @@ static void init_maptbl(struct conv_ftl *conv_ftl)
 	int i;
 	struct ssdparams *spp = &conv_ftl->ssd->sp;
 
-	conv_ftl->maptbl = vmalloc(sizeof(struct ppa) * spp->tt_pgs);
-	for (i = 0; i < spp->tt_pgs; i++) {
-		conv_ftl->maptbl[i].ppa = UNMAPPED_PPA;
+		conv_ftl->maptbl = vmalloc(sizeof(struct ppa) * spp->tt_pgs);
+		for (i = 0; i < spp->tt_pgs; i++) {
+			conv_ftl->maptbl[i].ppa = UNMAPPED_PPA;
 	}
 }
 
@@ -349,7 +349,7 @@ static void conv_init_ftl(struct conv_ftl *conv_ftl, struct convparams *cpp, str
 	prepare_write_pointer(conv_ftl, GC_IO);
 
 	init_write_flow_control(conv_ftl);
-	
+
 	conv_ftl->gc_cnt = 0;
 	NVMEV_INFO("Init FTL instance with %d channels (%ld pages)\n", conv_ftl->ssd->sp.nchs,
 		   conv_ftl->ssd->sp.tt_pgs);

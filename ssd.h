@@ -37,6 +37,7 @@ enum {
 	GC_IO = 1,
 	TRANSLATION_IO = 2,
 	TRANSLATION_GC_IO = 3,
+	WL_IO = 4,
 };
 
 enum {

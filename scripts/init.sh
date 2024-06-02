@@ -1,8 +1,8 @@
 dev=/dev/nvme0n1
-mount=~/mount
+mount=~/data
 
 echo "insert nvmevirt module..."
-sudo insmod ~/nvmev.ko memmap_start=16G memmap_size=16G cpus=7,8
+sudo insmod ./nvmev.ko memmap_start=4G memmap_size=16G cpus=3,4
 
 if [ $? -eq 0 ]; then
         echo "make file system on $dev"

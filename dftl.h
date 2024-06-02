@@ -9,6 +9,12 @@
 #include "ssd.h"
 // #include "conv_ftl.h"
 
+#define COLD_POOL 0
+#define HOT_POOL 1
+#define TH_COLD_DATA_MIGRATION 10
+#define TH_COLD_POOL_ADJUSTMENT 10
+#define TH_HOT_POOL_ADJUSTMENT 20
+
 struct dftlparams {
 	uint32_t gc_thres_lines;
 	uint32_t gc_thres_lines_high;
@@ -27,6 +33,10 @@ struct dftl_line {
 	/* position in the priority queue for victim lines */
 	size_t pos;
 
+	int nr_erase;
+	int eec;
+	bool pool;
+
 	bool translation;
 };
 
@@ -38,6 +48,8 @@ struct dftl_write_pointer {
 	uint32_t pg;
 	uint32_t blk;
 	uint32_t pl;
+
+	struct list_head entry;
 };
 
 struct dftl_line_mgmt {
@@ -48,11 +60,15 @@ struct dftl_line_mgmt {
 	pqueue_t *victim_line_pq;
 	struct list_head full_line_list;
 
+	struct list_head pending_write_pointer_list;
+	// struct list_head pending_tr_write_pointer_list;
+
 	uint32_t tt_lines;
 	uint32_t free_line_cnt;
 	uint32_t victim_line_cnt;
 	uint32_t full_line_cnt;
 
+	uint32_t pending_wp_cnt;
 	int translation_line_cnt;
 };
 
@@ -91,6 +107,21 @@ struct cmt {
 	DECLARE_HASHTABLE(lru_hash, 10);
 };
 
+struct wl_dual_pool {
+	uint32_t cdm;
+	uint32_t cpa;
+	uint32_t hpa;
+	uint32_t hot_pool_cnt;
+	uint32_t cold_pool_cnt;
+
+	struct dftl_line *max_ec_hot_line;
+    struct dftl_line *min_ec_hot_line;
+	struct dftl_line *min_ec_cold_line;
+	
+	struct dftl_line *min_eec_hot_line;
+	struct dftl_line *max_eec_cold_line;
+};
+
 struct dftl {
 	struct ssd *ssd;
 
@@ -101,12 +132,17 @@ struct dftl {
 	struct dftl_write_pointer gc_wp;
 	struct dftl_write_pointer translation_wp;
 	struct dftl_write_pointer translation_gc_wp;
+	struct dftl_write_pointer wl_wp;
+	struct dftl_write_pointer wl_translation_wp;
 	struct dftl_line_mgmt lm;
 	struct dftl_write_flow_control wfc;
 
 	struct gtd gtd;
 	struct cmt cmt;
 	int gc_cnt;
+
+	bool do_wl;
+	struct wl_dual_pool wl;
 };
 
 void dftl_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,
