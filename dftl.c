@@ -697,6 +697,9 @@ static void mark_page_valid(struct dftl *dftl, struct ppa *ppa)
 
 	/* update page status */
 	pg = get_pg(dftl->ssd, ppa);
+	if (pg->status != PG_FREE) {
+		NVMEV_INFO("PG STATUS: %d", pg->status);
+	}
 	NVMEV_ASSERT(pg->status == PG_FREE);
 	pg->status = PG_VALID;
 
@@ -1356,6 +1359,8 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 
 			mark_page_valid(dftl, &tr_ppa);
 
+			NVMEV_INFO("%lld", tr_ppa.ppa);
+
 			advance_write_pointer(dftl, TRANSLATION_IO);
 
 			// if (io_type == USER_IO) {
@@ -1623,6 +1628,7 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 
 	allocated_buf_size = buffer_allocate(wbuf, LBA_TO_BYTE(nr_lba));
 	if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
+		NVMEV_ERROR("HELLO");
 		return false;
 	}
 
@@ -1643,7 +1649,7 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 		nand_write = 0;		
 		nsecs_translation_completed = dftl_addr_translation(dftl, nsecs_start, req->sq_id,
 															&ppa, local_lpn, USER_IO, &nand_write, false);
-
+		NVMEV_INFO("HELLO");
 		// ppa = get_maptbl_ent(dftl, local_lpn); // Check whether the given LPN has been written before
 		if (mapped_ppa(&ppa)) {
 			/* update old page information first */
@@ -1658,10 +1664,10 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 		if (cmt_update(dftl, local_lpn, new_data_ppa) != NULL)
 			cmt_mark_head_dirty(dftl);
 
-		NVMEV_DEBUG("%s: got new ppa %lld, ", __func__, ppa2pgidx(dftl, &new_data_ppa));
+		NVMEV_INFO("%s: got new ppa %lld, ", __func__, new_data_ppa.ppa);
 		/* update rmap */
 		set_rmap_ent(dftl, local_lpn, &new_data_ppa);
-
+		
 		mark_page_valid(dftl, &new_data_ppa);
 
 		/* need to advance the write pointer here */

@@ -15,3 +15,4 @@ if [ $? -eq 0 ]; then
         fi
 else
         echo "mkfs failed"
+exit 0
