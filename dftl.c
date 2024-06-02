@@ -145,7 +145,7 @@ static void init_lines(struct dftl *dftl)
 		lm->free_line_cnt++;
 	}
 
-	for (i = 0; i < lm->tt_lines / 2; i++) {
+	for (; i < lm->tt_lines; i++) {
 		lm->lines[i] = (struct dftl_line){
 			.id = i,
 			.ipc = 0,
@@ -502,9 +502,9 @@ static void dftl_init_ftl(struct dftl *dftl, struct dftlparams *dpp, struct ssd 
 
 	init_cmt(dftl);
 
-	init_wl(dftl);
-
 	dftl->gc_cnt = 0;
+	
+	init_wl(dftl);
 
 	NVMEV_INFO("Init FTL instance with %d channels (%ld pages)\n", dftl->ssd->sp.nchs,
 		   dftl->ssd->sp.tt_pgs);
@@ -1359,7 +1359,7 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 
 			mark_page_valid(dftl, &tr_ppa);
 
-			NVMEV_INFO("%lld", tr_ppa.ppa);
+			// NVMEV_INFO("%lld", tr_ppa.ppa);
 
 			advance_write_pointer(dftl, TRANSLATION_IO);
 
@@ -1628,7 +1628,7 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 
 	allocated_buf_size = buffer_allocate(wbuf, LBA_TO_BYTE(nr_lba));
 	if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
-		NVMEV_ERROR("HELLO");
+		NVMEV_ERROR("BUFFER NO");
 		return false;
 	}
 
@@ -1649,7 +1649,7 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 		nand_write = 0;		
 		nsecs_translation_completed = dftl_addr_translation(dftl, nsecs_start, req->sq_id,
 															&ppa, local_lpn, USER_IO, &nand_write, false);
-		NVMEV_INFO("HELLO");
+
 		// ppa = get_maptbl_ent(dftl, local_lpn); // Check whether the given LPN has been written before
 		if (mapped_ppa(&ppa)) {
 			/* update old page information first */
@@ -1664,7 +1664,7 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 		if (cmt_update(dftl, local_lpn, new_data_ppa) != NULL)
 			cmt_mark_head_dirty(dftl);
 
-		NVMEV_INFO("%s: got new ppa %lld, ", __func__, new_data_ppa.ppa);
+		NVMEV_DEBUG("%s: got new ppa %lld, ", __func__, new_data_ppa.ppa);
 		/* update rmap */
 		set_rmap_ent(dftl, local_lpn, &new_data_ppa);
 		
