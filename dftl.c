@@ -839,7 +839,6 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 
 	gtd->tbl[vpn] = new_tr_ppa;
 
-
 	/* need to advance the write pointer here */
 
 	if (dpp->enable_gc_delay) {
@@ -852,7 +851,7 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 			.ppa = &new_tr_ppa,
 		};
 
-		if (last_pg_in_wordline(dftl, &new_ppa)) {
+		if (last_pg_in_wordline(dftl, &new_tr_ppa)) {
 			gcw.cmd = NAND_WRITE;
 			gcw.xfer_size = spp->pgsz * spp->pgs_per_oneshotpg;
 		}
@@ -1430,6 +1429,15 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 				set_rmap_ent(dftl, get_rmap_ent(dftl, &victim_tr_ppa), &new_tr_ppa);
 				set_rmap_ent(dftl, INVALID_LPN, &victim_tr_ppa);
 
+				// allocated_buf_size = buffer_allocate(wbuf, PAGE_SIZE);
+				// if (allocated_buf_size < PAGE_SIZE) {
+				// 	NVMEV_ERROR("%s: BUFFER NO %ld", __func__, wbuf->remaining);
+				// }
+
+				// nsecs_xfer_completed =
+				// 	ssd_advance_write_buffer(dftl->ssd, nsecs_read, PAGE_SIZE);
+
+
 				// NVMEV_INFO("evict victim tr ppa: %lld, new tr ppa: %lld", victim_tr_ppa.ppa, new_tr_ppa.ppa);
 				tmp_l2p = victim_tr_pg->l2p;
 				vfree(victim_tr_pg->l2p);
@@ -1442,14 +1450,15 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 
 				// allocated_buf_size = buffer_allocate(wbuf, LBA_TO_BYTE(spp->secs_per_pg));
 				// nsecs_wb = ssd_advance_write_buffer(dftl->ssd, req->nsecs_start, LBA_TO_BYTE(spp->secs_per_pg));
-
 				swr.stime = nsecs_read;
 				swr.ppa = &new_tr_ppa;
+				swr.cmd = NAND_NOP;
 				if (last_pg_in_wordline(dftl, &new_tr_ppa)) {
-					schedule_internal_operation(sqid, nsecs_xfer_completed, wbuf,
-												spp->pgs_per_oneshotpg * spp->pgsz);
+					// schedule_internal_operation(sqid, nsecs_xfer_completed, wbuf, PAGE_SIZE);
+					swr.cmd = NAND_WRITE;
 				}
-				nsecs_xfer_completed = ssd_advance_nand(dftl->ssd, &swr);
+				ssd_advance_nand(dftl->ssd, &swr);
+				// nsecs_xfer_completed = ssd_advance_nand(dftl->ssd, &swr);
 				// NVMEV_INFO("TPAGE READ: %lld, after write: %lld", nsecs_read, nsecs_xfer_completed);
 
 				// if (io_type == USER_IO) {
@@ -1627,10 +1636,10 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 	}
 
 	allocated_buf_size = buffer_allocate(wbuf, LBA_TO_BYTE(nr_lba));
-	if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
-		NVMEV_ERROR("BUFFER NO");
-		return false;
-	}
+	// if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
+	// 	NVMEV_ERROR("BUFFER NO");
+	// 	return false;
+	// }
 
 	nsecs_latest =
 		ssd_advance_write_buffer(dftl->ssd, req->nsecs_start, LBA_TO_BYTE(nr_lba));
