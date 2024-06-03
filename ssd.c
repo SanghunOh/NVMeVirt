@@ -391,6 +391,7 @@ uint64_t ssd_advance_nand(struct ssd *ssd, struct nand_cmd *ncmd)
 	case NAND_READ:
 		/* read: perform NAND cmd first */
 		nand_stime = max(lun->next_lun_avail_time, cmd_stime);
+        // NVMEV_INFO("%llu %llu", lun->next_lun_avail_time, cmd_stime);
 
 		if (ncmd->xfer_size == 4096) {
 			nand_etime = nand_stime + spp->pg_4kb_rd_lat[cell];

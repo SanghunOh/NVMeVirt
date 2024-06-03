@@ -16,6 +16,69 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 									struct ppa *ppa, uint64_t lpn, uint32_t io_type, int *nand_write, bool read);
 static void cmt_print(struct dftl *dftl);
 static inline struct ppa get_translation_ppa(struct gtd* gtd, int vpn);
+static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret);
+
+static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
+{
+	struct dftl *dftls = (struct dftl *)ns->ftls;
+	struct dftl *dftl = &dftls[0];
+	struct nvme_command *cmd = req->cmd;
+    struct ssdparams *dpp = &dftl->ssd->sp;	
+    struct wl_dual_pool *wl = &dftl->wl;
+    struct dftl_line_mgmt *lm = &dftl->lm;
+    int i;
+	uint64_t nsecs_start = req->nsecs_start;
+	uint64_t nsecs_latest = nsecs_start;
+	int print_each_bool = cmd->common.cdw2[0];
+
+	printk(KERN_INFO "------------TOTAL %ld------------", dpp->tt_lines);
+	printk(KERN_INFO "threshold: %d", TH_COLD_DATA_MIGRATION);
+	printk(KERN_INFO "cdm: %d, cpa: %d, hpa: %d", wl->cdm, wl->cpa, wl->hpa);
+	printk(KERN_INFO "");
+	for (i = 0; i < dpp->tt_lines; i++) {
+		printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
+	}
+	printk(KERN_INFO "");
+
+	if (print_each_bool == 1) {
+		printk(KERN_INFO "------------HOT POOL %d------------", wl->hot_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < dpp->tt_lines; i++) {
+			if (lm->lines[i].pool == HOT_POOL)
+				printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
+		}
+		printk(KERN_INFO "");
+
+		printk(KERN_INFO "------------COLD POOL %d------------", wl->cold_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < dpp->tt_lines; i++) {
+			if (lm->lines[i].pool == COLD_POOL)
+				printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
+		}
+		printk(KERN_INFO "");
+	}
+
+	if (print_each_bool == 2) {
+		printk(KERN_INFO "------------HOT POOL %d------------", wl->hot_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < dpp->tt_lines; i++) {
+			if (lm->lines[i].pool == HOT_POOL)
+				printk(KERN_CONT "%d(%d) ", lm->lines[i].nr_erase, lm->lines[i].eec);
+		}
+		printk(KERN_INFO "");
+
+		printk(KERN_INFO "------------COLD POOL %d------------", wl->cold_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < dpp->tt_lines; i++) {
+			if (lm->lines[i].pool == COLD_POOL)
+				printk(KERN_CONT "%d(%d) ", lm->lines[i].nr_erase, lm->lines[i].eec);
+		}
+		printk(KERN_INFO "");
+	}
+
+	ret->nsecs_target = nsecs_latest;
+	ret->status = NVME_SC_SUCCESS;
+}
 
 static inline bool last_pg_in_wordline(struct dftl *dftl, struct ppa *ppa)
 {
@@ -30,7 +93,8 @@ static bool should_gc(struct dftl *dftl)
 
 static inline bool should_gc_high(struct dftl *dftl)
 {
-	return dftl->lm.free_line_cnt <= dftl->dp.gc_thres_lines_high;
+	// return dftl->lm.free_line_cnt <= dftl->dp.gc_thres_lines_high;
+	return dftl->lm.free_line_cnt <= 200;
 }
 
 static uint64_t ppa2pgidx(struct dftl *dftl, struct ppa *ppa)
@@ -780,7 +844,7 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 		.cmd = NAND_READ,
 		.stime = 0,
 		.interleave_pci_dma = true,
-		.xfer_size = spp->pgsz,
+		.xfer_size = 0,
 	};
 
 	NVMEV_ASSERT(valid_lpn(dftl, lpn));
@@ -823,12 +887,19 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 	else {
 		cmt->miss_cnt++;
 		old_tr_pg->l2p[offset] = new_ppa;
-				
+
 		new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
 		memcpy(new_tr_pg->l2p, old_tr_pg->l2p, sizeof(struct ppa) * gtd->map_per_pg);
 
 		gcr.ppa = &old_tr_ppa;
-		nsecs_read = ssd_advance_nand(dftl->ssd, &gcr);
+
+		// if (!mapped_ppa(&prev_ppa) && is_same_flash_page(dftl, old_tr_ppa, prev_ppa)) {
+		// 	nsecs_read = 0;
+		// 	gcr.xfer_size += dpp->pg_sz;
+		// } else {
+		// NVMEV_INFO("%s: GCR tr page", __func__);
+		// nsecs_read = ssd_advance_nand(dftl->ssd, &gcr);
+		// }
 
 		vfree(old_tr_pg->l2p);
 	}
@@ -855,7 +926,7 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 			gcw.cmd = NAND_WRITE;
 			gcw.xfer_size = spp->pgsz * spp->pgs_per_oneshotpg;
 		}
-
+		// NVMEV_INFO("%s: GCW tr page", __func__);
 		ssd_advance_nand(dftl->ssd, &gcw);
 
 		gcw.cmd = NAND_NOP;
@@ -865,7 +936,7 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 			gcw.cmd = NAND_WRITE;
 			gcw.xfer_size = spp->pgsz * spp->pgs_per_oneshotpg;
 		}
-
+		// NVMEV_INFO("%s: GCW data page", __func__);
 		ssd_advance_nand(dftl->ssd, &gcw);
 	}
 
@@ -955,7 +1026,7 @@ static uint64_t gc_write_translation_page(struct dftl *dftl, struct ppa *old_tr_
 			gcw.cmd = NAND_WRITE,
 			gcw.xfer_size = spp->pgsz * spp->pgs_per_oneshotpg;
 		}
-
+		// NVMEV_INFO("%s: GCW", __func__);
 		ssd_advance_nand(dftl->ssd, &gcw);
 	}
 
@@ -1002,6 +1073,8 @@ static void clean_one_flashpg(struct dftl *dftl, struct ppa *ppa, bool wl)
 	int cnt = 0, i = 0;
 	uint64_t completed_time = 0;
 	struct ppa ppa_copy = *ppa;
+	struct cmt_entry *cmt_entry;
+	struct gtd *gtd = &dftl->gtd;
 
 	for (i = 0; i < spp->pgs_per_flashpg; i++) {
 		pg_iter = get_pg(dftl->ssd, &ppa_copy);
@@ -1009,6 +1082,14 @@ static void clean_one_flashpg(struct dftl *dftl, struct ppa *ppa, bool wl)
 		NVMEV_ASSERT(pg_iter->status != PG_FREE);
 		if (pg_iter->status == PG_VALID)
 			cnt++;
+
+		if (pg_iter->translation) {
+			uint64_t lpn = get_rmap_ent(dftl, &ppa_copy);
+			int vpn = lpn / gtd->map_per_pg;
+			if (!(cmt_entry = cmt_check(dftl, vpn))) {
+				cnt++;
+			}
+		}
 
 		ppa_copy.g.pg++;
 	}
@@ -1052,6 +1133,10 @@ static void mark_line_free(struct dftl *dftl, struct ppa *ppa)
 	struct dftl_line *line = get_line(dftl, ppa);
 	line->ipc = 0;
 	line->vpc = 0;
+
+	line->nr_erase++;
+	line->eec++;
+	
 	/* move this line to free line list */
 	list_add_tail(&line->entry, &lm->free_line_list);
 	lm->free_line_cnt++;
@@ -2031,6 +2116,9 @@ bool dftl_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struc
 	case nvme_cmd_print_cmt:
 		conv_print_cmt(ns, req);
 		break;
+	case nvme_cmd_print_ec:
+		print_erase_cnt(ns, req, ret);
+		break;
 	default:
 		NVMEV_ERROR("%s: command not implemented: %s (0x%x)\n", __func__,
 				nvme_opcode_string(cmd->common.opcode), cmd->common.opcode);
@@ -2040,7 +2128,7 @@ bool dftl_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struc
 	if (should_gc_high(dftl)) {
 		victim_line = select_victim_line(dftl, true);
 		if (victim_line) {
-			NVMEV_INFO("DO GC");
+			// NVMEV_INFO("DO GC");
 			do_gc(dftl, victim_line, true, false);
 
 			if (dftl->do_wl)

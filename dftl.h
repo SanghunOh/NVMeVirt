@@ -11,9 +11,9 @@
 
 #define COLD_POOL 0
 #define HOT_POOL 1
-#define TH_COLD_DATA_MIGRATION 10
-#define TH_COLD_POOL_ADJUSTMENT 10
-#define TH_HOT_POOL_ADJUSTMENT 20
+#define TH_COLD_DATA_MIGRATION 2
+#define TH_COLD_POOL_ADJUSTMENT 2
+#define TH_HOT_POOL_ADJUSTMENT 4
 
 struct dftlparams {
 	uint32_t gc_thres_lines;
