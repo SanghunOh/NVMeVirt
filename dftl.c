@@ -16,7 +16,61 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 									struct ppa *ppa, uint64_t lpn, uint32_t io_type, int *nand_write, bool read);
 static void cmt_print(struct dftl *dftl);
 static inline struct ppa get_translation_ppa(struct gtd* gtd, int vpn);
-static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret);
+static void conv_print_cmt_(struct dftl *dftl);
+
+static void print_erase_cnt_(struct dftl *dftl)
+{
+    struct ssdparams *dpp = &dftl->ssd->sp;	
+    struct wl_dual_pool *wl = &dftl->wl;
+    struct dftl_line_mgmt *lm = &dftl->lm;
+    int i;
+	int print_each_bool = 1;
+
+	printk(KERN_INFO "------------TOTAL %ld------------", dpp->tt_lines);
+	printk(KERN_INFO "threshold: %d", TH_COLD_DATA_MIGRATION);
+	printk(KERN_INFO "cdm: %d, cpa: %d, hpa: %d", wl->cdm, wl->cpa, wl->hpa);
+	printk(KERN_INFO "");
+	for (i = 0; i < dpp->tt_lines; i++) {
+		printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
+	}
+	printk(KERN_INFO "");
+
+	if (print_each_bool == 1) {
+		printk(KERN_INFO "------------HOT POOL %d------------", wl->hot_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < dpp->tt_lines; i++) {
+			if (lm->lines[i].pool == HOT_POOL)
+				printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
+		}
+		printk(KERN_INFO "");
+
+		printk(KERN_INFO "------------COLD POOL %d------------", wl->cold_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < dpp->tt_lines; i++) {
+			if (lm->lines[i].pool == COLD_POOL)
+				printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
+		}
+		printk(KERN_INFO "");
+	}
+
+	if (print_each_bool == 2) {
+		printk(KERN_INFO "------------HOT POOL %d------------", wl->hot_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < dpp->tt_lines; i++) {
+			if (lm->lines[i].pool == HOT_POOL)
+				printk(KERN_CONT "%d(%d) ", lm->lines[i].nr_erase, lm->lines[i].eec);
+		}
+		printk(KERN_INFO "");
+
+		printk(KERN_INFO "------------COLD POOL %d------------", wl->cold_pool_cnt);
+		printk(KERN_INFO "");
+		for (i = 0; i < dpp->tt_lines; i++) {
+			if (lm->lines[i].pool == COLD_POOL)
+				printk(KERN_CONT "%d(%d) ", lm->lines[i].nr_erase, lm->lines[i].eec);
+		}
+		printk(KERN_INFO "");
+	}
+}
 
 static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
 {
@@ -217,7 +271,7 @@ static void init_lines(struct dftl *dftl)
 			.pos = 0,
 			.nr_erase = 0,
 			.eec = 0,
-			.pool = COLD_POOL,
+			.pool = HOT_POOL,
 			.translation = false,
 			.entry = LIST_HEAD_INIT(lm->lines[i].entry),
 		};
@@ -280,6 +334,7 @@ static void init_cmt(struct dftl *dftl)
 static void init_wl(struct dftl *dftl)
 {
 	struct wl_dual_pool *wl = &dftl->wl;
+	struct ssdparams *dpp = &dftl->ssd->sp;	
 
 	dftl->do_wl = DO_WL;
 
@@ -299,6 +354,9 @@ static void init_wl(struct dftl *dftl)
 
 	wl->min_eec_hot_line = NULL;
 	wl->max_eec_cold_line = NULL;
+
+	// wl->hot_pool_cnt = dpp->tt_lines / 2;
+	// wl->cold_pool_cnt = dpp->tt_lines / 2;
 }
 
 static void remove_cmt(struct dftl *dftl)
@@ -437,7 +495,8 @@ static void advance_write_pointer(struct dftl *dftl, uint32_t io_type)
 		list_add_tail(&wpp->curline->entry, &lm->full_line_list);
 		lm->full_line_cnt++;
 		NVMEV_DEBUG_VERBOSE("wpp: move line to full_line_list\n");
-	} else if (io_type != WL_IO) {
+	// } else if (io_type) {
+	} else {
 		NVMEV_DEBUG_VERBOSE("wpp: line is moved to victim list\n");
 		NVMEV_ASSERT(wpp->curline->vpc >= 0 && wpp->curline->vpc < spp->pgs_per_line);
 		/* there must be some invalid pages in this line */
@@ -447,37 +506,31 @@ static void advance_write_pointer(struct dftl *dftl, uint32_t io_type)
 	}
 
 	/* current line is used up, pick another empty line */
-	if (io_type == WL_IO) {
-		return;
-	}
+	// if (io_type == WL_IO) {
+	// 	return;
+	// }
 
-	check_addr(wpp->blk, spp->blks_per_pl);
-	if (io_type == USER_IO && !list_empty(&lm->pending_write_pointer_list)) {
-		int blk = wpp->blk;
-		struct dftl_write_pointer *wp = list_first_entry(&lm->pending_write_pointer_list, struct dftl_write_pointer, entry);
-		// set_user_io_write_pointer(conv_ftl, wp);
-		wpp->curline = wp->curline;
-		wpp->blk = wp->curline->id;
-		wpp->ch = wp->ch;
-		wpp->lun = wp->lun;
-		wpp->pg = wp->pg;
-		wpp->pl = wp->pl;
+	// check_addr(wpp->blk, spp->blks_per_pl);
+	// if (io_type == USER_IO && !list_empty(&lm->pending_write_pointer_list)) {
+	// 	int blk = wpp->blk;
+	// 	struct dftl_write_pointer *wp = list_first_entry(&lm->pending_write_pointer_list, struct dftl_write_pointer, entry);
+	// 	// set_user_io_write_pointer(conv_ftl, wp);
+	// 	wpp->curline = wp->curline;
+	// 	wpp->blk = wp->curline->id;
+	// 	wpp->ch = wp->ch;
+	// 	wpp->lun = wp->lun;
+	// 	wpp->pg = wp->pg;
+	// 	wpp->pl = wp->pl;
 
-		list_del_init(&wp->entry);
-		lm->pending_wp_cnt--;
-		vfree(wp);
-	} else {
+	// 	list_del_init(&wp->entry);
+	// 	lm->pending_wp_cnt--;
+	// 	vfree(wp);
+	// } else {
 		wpp->curline = get_next_free_line(dftl);
 		wpp->blk = wpp->curline->id;
 		check_addr(wpp->blk, spp->blks_per_pl);
-
-		/* make sure we are starting from page 0 in the super block */
-		NVMEV_ASSERT(wpp->pg == 0);
-		NVMEV_ASSERT(wpp->lun == 0);
-		NVMEV_ASSERT(wpp->ch == 0);
-		/* TODO: assume # of pl_per_lun is 1, fix later */
-		NVMEV_ASSERT(wpp->pl == 0);
-	}
+		NVMEV_INFO("iotype: %d, line: %d", io_type, wpp->blk);
+	// }
 
 	/* make sure we are starting from page 0 in the super block */
 	NVMEV_ASSERT(wpp->pg == 0);
@@ -495,7 +548,7 @@ static struct ppa get_new_page(struct dftl *dftl, uint32_t io_type)
 	struct ppa ppa;
 	struct dftl_write_pointer *wp = __get_wp(dftl, io_type);
 
-	ppa.ppa = 0;
+	// ppa.ppa = 0;
 	ppa.g.ch = wp->ch;
 	ppa.g.lun = wp->lun;
 	ppa.g.pg = wp->pg;
@@ -541,6 +594,7 @@ static void remove_rmap(struct dftl *dftl)
 
 static void dftl_init_ftl(struct dftl *dftl, struct dftlparams *dpp, struct ssd *ssd)
 {
+	struct wl_dual_pool *wl = &dftl->wl;
 	/*copy dftlparams*/
 	dftl->dp = *dpp;
 
@@ -569,7 +623,9 @@ static void dftl_init_ftl(struct dftl *dftl, struct dftlparams *dpp, struct ssd 
 	dftl->gc_cnt = 0;
 	
 	init_wl(dftl);
-
+	dftl->wl.hot_pool_cnt = dftl->ssd->sp.tt_lines / 2;
+	dftl->wl.cold_pool_cnt = dftl->ssd->sp.tt_lines / 2; 
+	// NVMEV_INFO("%ld %u %u", dftl->ssd->sp.tt_lines / 2, wl->hot_pool_cnt, wl->cdm);
 	NVMEV_INFO("Init FTL instance with %d channels (%ld pages)\n", dftl->ssd->sp.nchs,
 		   dftl->ssd->sp.tt_pgs);
 
@@ -716,7 +772,14 @@ static void mark_page_invalid(struct dftl *dftl, struct ppa *ppa)
 
 	/* update corresponding page status */
 	pg = get_pg(dftl->ssd, ppa);
-	NVMEV_ASSERT(pg->status == PG_VALID);
+	// if (pg->status != PG_VALID) {
+	// 	NVMEV_INFO("VALID : %lld %d\n", ppa->g.blk, pg->status);
+	// 	NVMEV_INFO("%d", pg->translation);
+	// 	NVMEV_INFO("%lld %lld %lld %lld\n", __get_wp(dftl, USER_IO)->curline->id, __get_wp(dftl, GC_IO)->curline->id, __get_wp(dftl, TRANSLATION_IO)->curline->id, __get_wp(dftl, TRANSLATION_GC_IO)->curline->id);
+	// 	conv_print_cmt_(dftl);
+	// 	print_erase_cnt_(dftl);
+	// }
+	// NVMEV_ASSERT(pg->status == PG_VALID);
 	pg->status = PG_INVALID;
 
 	/* update corresponding block status */
@@ -848,11 +911,23 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 	};
 
 	NVMEV_ASSERT(valid_lpn(dftl, lpn));
-	
+
 	new_tr_ppa = get_new_page(dftl, TRANSLATION_GC_IO);
-	
+
 	old_tr_ppa = gtd->tbl[vpn];
 	old_tr_pg = get_pg(dftl->ssd, &old_tr_ppa);
+	NVMEV_ASSERT(valid_ppa(dftl, &old_tr_ppa));
+	NVMEV_ASSERT(old_tr_pg->translation == true);
+
+	if (old_tr_pg->l2p[offset].ppa != old_ppa->ppa) {
+		NVMEV_INFO("%d %d %d %d", old_ppa->g.pg, old_ppa->g.blk, old_tr_pg->l2p[offset].g.pg, old_tr_pg->l2p[offset].g.blk);
+		NVMEV_INFO("%d %d %d %d", old_ppa->g.ch, old_ppa->g.lun, old_tr_pg->l2p[offset].g.ch, old_tr_pg->l2p[offset].g.lun);
+		NVMEV_INFO("%d %d %d %d", old_ppa->g.pl, old_ppa->g.rsv, old_tr_pg->l2p[offset].g.pl, old_tr_pg->l2p[offset].g.rsv);
+		NVMEV_INFO("line: %d, gc: %d", old_ppa->g.blk, dftl->gc_cnt);
+		NVMEV_INFO("lpn: %lld, %d %d", lpn, vpn, offset, get_rmap_ent(dftl, &old_tr_pg->l2p[offset]));
+		print_erase_cnt_(dftl);
+		NVMEV_ASSERT(old_tr_pg->l2p[offset].ppa == old_ppa->ppa);
+	}
 	
 	set_rmap_ent(dftl, INVALID_LPN, &old_tr_ppa);
 	set_rmap_ent(dftl, vpn, &new_tr_ppa);
@@ -869,6 +944,7 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 	set_rmap_ent(dftl, lpn, &new_ppa);
 
 	mark_page_valid(dftl, &new_ppa);
+	get_pg(dftl->ssd, &new_ppa)->translation = false;
 
 	advance_write_pointer(dftl, GC_IO);
 
@@ -879,6 +955,8 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 		cmt_entry->l2p[offset] = new_ppa;
 
 		new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
+		for (i = 0; i < gtd->map_per_pg; i++)
+			new_tr_pg->l2p[i].ppa = UNMAPPED_PPA;
 		memcpy(new_tr_pg->l2p, cmt_entry->l2p, sizeof(struct ppa) * gtd->map_per_pg);
 
 		cmt_entry->dirty = false;
@@ -886,10 +964,12 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 	}
 	else {
 		cmt->miss_cnt++;
-		old_tr_pg->l2p[offset] = new_ppa;
 
 		new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
+		for (i = 0; i < gtd->map_per_pg; i++)
+			new_tr_pg->l2p[i].ppa = UNMAPPED_PPA;
 		memcpy(new_tr_pg->l2p, old_tr_pg->l2p, sizeof(struct ppa) * gtd->map_per_pg);
+		new_tr_pg->l2p[offset] = new_ppa;
 
 		gcr.ppa = &old_tr_ppa;
 
@@ -963,6 +1043,7 @@ static uint64_t gc_write_translation_page(struct dftl *dftl, struct ppa *old_tr_
 	struct nand_page *old_tr_pg, *new_tr_pg;
 	struct gtd *gtd = &dftl->gtd;
 	uint64_t nsecs_read = 0;
+	int i;
 
 	int vpn = get_rmap_ent(dftl, old_tr_ppa);
 
@@ -980,6 +1061,8 @@ static uint64_t gc_write_translation_page(struct dftl *dftl, struct ppa *old_tr_
 		 cmt->hit_cnt++;
 
 		new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
+		for (i = 0; i < gtd->map_per_pg; i++)
+			new_tr_pg->l2p[i].ppa = UNMAPPED_PPA;
 		memcpy(new_tr_pg->l2p, cmt_entry->l2p, sizeof(struct ppa) * gtd->map_per_pg);
 		cmt_entry->dirty = false;
 
@@ -1079,6 +1162,12 @@ static void clean_one_flashpg(struct dftl *dftl, struct ppa *ppa, bool wl)
 	for (i = 0; i < spp->pgs_per_flashpg; i++) {
 		pg_iter = get_pg(dftl->ssd, &ppa_copy);
 		/* there shouldn't be any free page in victim blocks */
+		if (pg_iter->status == PG_FREE) {
+			NVMEV_INFO("VALID : %lld\n", ppa->g.blk);
+			NVMEV_INFO("%lld %lld %lld %lld\n", __get_wp(dftl, USER_IO)->curline->id, __get_wp(dftl, GC_IO)->curline->id, __get_wp(dftl, TRANSLATION_IO)->curline->id, __get_wp(dftl, TRANSLATION_GC_IO)->curline->id);
+			conv_print_cmt_(dftl);
+			print_erase_cnt_(dftl);
+		}
 		NVMEV_ASSERT(pg_iter->status != PG_FREE);
 		if (pg_iter->status == PG_VALID)
 			cnt++;
@@ -1149,7 +1238,8 @@ static int do_gc(struct dftl *dftl, struct dftl_line *victim_line, bool force, b
 	int flashpg;
 
 	dftl->gc_cnt++;
-
+	NVMEV_INFO("gc: %d", victim_line->id);
+	dftl->last_gc_line = victim_line->id;
 	ppa.g.blk = victim_line->id;
 	NVMEV_DEBUG_VERBOSE("GC-ing line:%d,ipc=%d(%d),victim=%d,full=%d,free=%d\n", ppa.g.blk,
 		    victim_line->ipc, victim_line->vpc, dftl->lm.victim_line_cnt,
@@ -1465,6 +1555,8 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 
 		cmt_entry = vmalloc(sizeof(struct cmt_entry));
 		cmt_entry->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
+		for (i = 0; i < gtd->map_per_pg; i++)
+			cmt_entry->l2p[i].ppa = UNMAPPED_PPA;
 
 		if (tr_pg->l2p == NULL) {
 			NVMEV_INFO("ppa: %lld, lpn: %lld, vpn:%d", tr_ppa.ppa, lpn, vpn);
@@ -1495,6 +1587,7 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 				victim_tr_pg = get_pg(dftl->ssd, &victim_tr_ppa);
 
 				NVMEV_ASSERT(victim_tr_pg->translation == true);
+				NVMEV_ASSERT(get_rmap_ent(dftl, &victim_tr_ppa) == victim_vpn);
 
 				// new_tr_ppa = get_new_page(dftl, TRANSLATION_IO);
 				new_tr_ppa = get_new_page(dftl, TRANSLATION_IO);
@@ -1502,6 +1595,8 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 
 				NVMEV_ASSERT(new_tr_pg->l2p == NULL);
 				new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
+				for (i = 0; i < gtd->map_per_pg; i++)
+					new_tr_pg->l2p[i].ppa = UNMAPPED_PPA;
 				memcpy(new_tr_pg->l2p, victim_entry->l2p, sizeof(struct ppa) * gtd->map_per_pg);
 
 				gtd->tbl[victim_vpn] = new_tr_ppa;
@@ -1511,7 +1606,8 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 				mark_page_valid(dftl, &new_tr_ppa);
 
 				// NVMEV_INFO("evict2 vpn: %d %lld %lld", victim_vpn, victim_tr_ppa.ppa, new_tr_ppa.ppa);
-				set_rmap_ent(dftl, get_rmap_ent(dftl, &victim_tr_ppa), &new_tr_ppa);
+	
+				set_rmap_ent(dftl, victim_vpn, &new_tr_ppa);
 				set_rmap_ent(dftl, INVALID_LPN, &victim_tr_ppa);
 
 				// allocated_buf_size = buffer_allocate(wbuf, PAGE_SIZE);
@@ -1740,13 +1836,17 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 		dftl = &dftls[lpn % nr_parts];
 		local_lpn = lpn / nr_parts;
 
-		nand_write = 0;		
+		nand_write = 0;
+		// NVMEV_INFO("DO ADDR TR");
 		nsecs_translation_completed = dftl_addr_translation(dftl, nsecs_start, req->sq_id,
 															&ppa, local_lpn, USER_IO, &nand_write, false);
-
+		
 		// ppa = get_maptbl_ent(dftl, local_lpn); // Check whether the given LPN has been written before
 		if (mapped_ppa(&ppa)) {
 			/* update old page information first */
+			if (get_pg(dftl->ssd, &ppa)->status != PG_VALID) {
+				NVMEV_INFO("mark page invalid");
+			}
 			mark_page_invalid(dftl, &ppa);
 			set_rmap_ent(dftl, INVALID_LPN, &ppa);
 			NVMEV_DEBUG("%s: %lld is invalid, ", __func__, ppa2pgidx(dftl, &ppa));
@@ -1829,6 +1929,18 @@ static void conv_print_cmt(struct nvmev_ns *ns, struct nvmev_request *req)
 	cmt_print(dftl);
 }
 
+static void conv_print_cmt_(struct dftl *dftl)
+{
+	struct cmt *cmt = &dftl->cmt;
+
+	NVMEV_INFO("----------------- CMT -----------------");
+	NVMEV_INFO("CMT hit: %lld, CMT miss: %lld", cmt->hit_cnt, cmt->miss_cnt);
+	NVMEV_INFO("CMT read miss: %lld, write miss: %lld", cmt->read_miss_cnt, cmt->write_miss_cnt);
+	NVMEV_INFO("GC: %d", dftl->gc_cnt);
+	NVMEV_INFO("flush: %lld, cold miss: %lld", cmt->flush_cnt, cmt->cold_miss_cnt);
+	cmt_print(dftl);
+}
+
 static bool check_hot_pool_adjustment(struct dftl *dftl) 
 {
 	struct dftl_line_mgmt *lm = &dftl->lm;
@@ -1837,6 +1949,9 @@ static bool check_hot_pool_adjustment(struct dftl *dftl)
 	int max_ec_idx = -1;	// hot pool
 	int min_ec_idx = -1;	// hot pool
 	int i;
+
+	if (wl->hot_pool_cnt == 0 || wl->cold_pool_cnt == 0)
+		return false;
 
 	for (i = 0; i < lm->tt_lines; i++) {
 	// find lines with the most and least eec in hot pool
@@ -1852,6 +1967,8 @@ static bool check_hot_pool_adjustment(struct dftl *dftl)
 				min_ec_idx = i;
 		}
 	}
+	if (max_ec_idx == -1 || min_ec_idx == -1)
+		return false;
 	NVMEV_ASSERT(max_ec_idx != -1 && min_ec_idx != -1);
 
 	wl->max_ec_hot_line = &lm->lines[max_ec_idx];
@@ -1865,10 +1982,10 @@ static void do_hot_pool_adjustment(struct dftl *dftl, bool *term)
 	struct dftl_line_mgmt *lm = &dftl->lm;
 	struct wl_dual_pool *wl = &dftl->wl;
 
-	if (wl->hot_pool_cnt <= lm->tt_lines / 4) {
-		*term = true;
-		return;
-	}
+	// if (wl->hot_pool_cnt <= lm->tt_lines / 4) {
+	// 	*term = true;
+	// 	return;
+	// }
 	
     NVMEV_ASSERT(wl->min_ec_hot_line);
 	NVMEV_DEBUG("%s: line(%d) with ec:%u->hot pool\n",\
@@ -1889,6 +2006,9 @@ static bool check_cold_pool_adjustment(struct dftl *dftl)
 	int min_eec_idx = -1;	// hot pool
 	int max_eec_idx = -1;	// cold pool
 	int i;
+
+	if (wl->hot_pool_cnt == 0 || wl->cold_pool_cnt == 0)
+		return false;
 	
 	for (i = 0; i < lm->tt_lines; i++) {
 	// find a line with the least eec in HOT POOl
@@ -1910,7 +2030,10 @@ static bool check_cold_pool_adjustment(struct dftl *dftl)
 				max_eec_idx = i;
 		}
 	}
+	if (max_eec_idx == -1 || min_eec_idx == -1)
+		return false;
 	NVMEV_ASSERT(max_eec_idx != -1 && min_eec_idx != -1);
+
 
 	wl->min_eec_hot_line = &lm->lines[min_eec_idx];
 	wl->max_eec_cold_line = &lm->lines[max_eec_idx];	
@@ -1923,10 +2046,10 @@ static void do_cold_pool_adjustment(struct dftl *dftl, bool *term)
 	struct dftl_line_mgmt *lm = &dftl->lm;
 	struct wl_dual_pool *wl = &dftl->wl;
 
-	if (wl->cold_pool_cnt <= lm->tt_lines / 4) {
-		*term = true;
-		return;
-	}
+	// if (wl->cold_pool_cnt <= lm->tt_lines / 4) {
+	// 	*term = true;
+	// 	return;
+	// }
 	
 	NVMEV_ASSERT(wl->max_eec_cold_line);
 	NVMEV_DEBUG("%s: line(%d) with ec:%u->hot pool\n",\
@@ -1943,26 +2066,37 @@ static bool check_cold_data_migration(struct dftl *dftl)
 {
 	struct dftl_line_mgmt *lm = &dftl->lm;
 	struct wl_dual_pool *wl = &dftl->wl;
+	struct ssdparams *sp = &dftl->ssd->sp;
 	struct dftl_write_pointer *user_wp = __get_wp(dftl, USER_IO);
 	struct dftl_write_pointer *gc_wp = __get_wp(dftl, GC_IO);
+	struct dftl_write_pointer *tr_wp = __get_wp(dftl, TRANSLATION_IO);
+	struct dftl_write_pointer *tr_gc_wp = __get_wp(dftl, TRANSLATION_GC_IO);
 
 	int max_ec_idx = -1;	// hot pool
 	int min_ec_idx = -1;	// cold pool
 	int i;
+
+	if (wl->hot_pool_cnt == 0 || wl->cold_pool_cnt == 0)
+		return false;
 	
 	for (i = 0; i < lm->tt_lines; i++) {
-		if (i == user_wp->curline->id || i == gc_wp->curline->id)
+		if (i == user_wp->curline->id || i == gc_wp->curline->id || 
+			i == tr_wp->curline->id || i == tr_gc_wp->curline->id)
 			continue;
-		if (lm->lines[i].translation)
-			continue;
+		// if (lm->lines[i].translation)
+		// 	continue;
 	// find a line with the most erase count in hot pool
+		if (lm->lines[i].vpc + lm->lines[i].ipc != sp->pgs_per_line)
+			continue;
 		if (lm->lines[i].pool == HOT_POOL) {
 			if (max_ec_idx == -1) {
 				max_ec_idx = i;
 				continue;
 			}
 			if (lm->lines[i].nr_erase == lm->lines[max_ec_idx].nr_erase) {
-				if (lm->lines[i].ipc > lm->lines[max_ec_idx].ipc)
+				if (i == dftl->last_gc_line)
+					max_ec_idx = i;
+				else if (lm->lines[i].ipc > lm->lines[max_ec_idx].ipc)
 					max_ec_idx = i;
 			}
 			else if (lm->lines[i].nr_erase > lm->lines[max_ec_idx].nr_erase)
@@ -1982,7 +2116,9 @@ static bool check_cold_data_migration(struct dftl *dftl)
 				min_ec_idx = i;
 		}
 	}
-	NVMEV_ASSERT(max_ec_idx != -1 && min_ec_idx != -1);
+	if (max_ec_idx == -1 || min_ec_idx == -1)
+		return false;
+	// NVMEV_ASSERT(max_ec_idx != -1 && min_ec_idx != -1);
 
 	wl->max_ec_hot_line = &lm->lines[max_ec_idx];
 	wl->min_ec_cold_line = &lm->lines[min_ec_idx];
@@ -2004,6 +2140,7 @@ static void do_cold_data_migration(struct dftl *dftl)
 				 wl->min_ec_cold_line->id, wl->min_ec_cold_line->nr_erase);
 	NVMEV_ASSERT(wl->min_ec_cold_line && wl->max_ec_hot_line);
 	victim_line = wl->max_ec_hot_line;
+	NVMEV_INFO("victim line: %d %d %d %d", victim_line->id, victim_line->nr_erase, dftl->last_gc_line, lm->lines[dftl->last_gc_line].nr_erase) ;
 
 	/* 
 	   make the line with the largest nr_erase in hot pool free
@@ -2016,17 +2153,17 @@ static void do_cold_data_migration(struct dftl *dftl)
 	}
 	else {
 		/* copy hot data to wl write pointer (potentially normal user write pointer) */
-		NVMEV_ASSERT(0);
-		// if (victim_line->vpc < spp->pgs_per_line) {
-		// 	pqueue_remove(lm->victim_line_pq, victim_line);
-		// 	lm->victim_line_cnt--;
-		// 	victim_line->pos = 0;
-		// }
-		// else if(victim_line->vpc == spp->pgs_per_line) {
-		// 	list_del_init(&victim_line->entry);
-		// 	lm->full_line_cnt--;
-		// }
-		// do_gc(dftl, victim_line, false, true);
+		// NVMEV_ASSERT(0);
+		if (victim_line->vpc < spp->pgs_per_line) {
+			pqueue_remove(lm->victim_line_pq, victim_line);
+			lm->victim_line_cnt--;
+			victim_line->pos = 0;
+		}
+		else if(victim_line->vpc == spp->pgs_per_line) {
+			list_del_init(&victim_line->entry);
+			lm->full_line_cnt--;
+		}
+		do_gc(dftl, victim_line, false, true);
 	}
 	NVMEV_ASSERT(victim_line->vpc == 0 && victim_line->ipc == 0);
 	/* remove the oldest line originally has hot data from free line list */
@@ -2034,11 +2171,14 @@ static void do_cold_data_migration(struct dftl *dftl)
 	lm->free_line_cnt--;
 
 	/* copy cold data to oldest block (with pending write pointer) */
-	prepare_wl_write_pointer(dftl, wl->max_ec_hot_line, tr);
-	ppa.ppa = 0;
+	// prepare_wl_write_pointer(dftl, wl->max_ec_hot_line, tr);
+	// ppa.ppa = 0;
 	ppa.g.blk = wl->min_ec_cold_line->id;
 
+	NVMEV_INFO("victim line: %lld, dest line: %lld", victim_line->id, ppa.g.blk);
+
 	wl_copy_line(dftl, ppa);
+	NVMEV_INFO("end COPY LINE");
 
 	if (wl->max_ec_hot_line->vpc == 0) {
 		list_add_tail(&victim_line->entry, &lm->free_line_list);
@@ -2078,6 +2218,11 @@ static void dual_pool(struct dftl *dftl)
 	struct wl_dual_pool *wl = &dftl->wl;
 	bool term;
 	
+	if (check_cold_data_migration(dftl)) {
+		NVMEV_INFO("DO CDM %d", wl->cdm);
+		do_cold_data_migration(dftl);
+		NVMEV_INFO("END CDM");
+	}
 	term = false;
 	while (!term && check_hot_pool_adjustment(dftl)) {
 		do_hot_pool_adjustment(dftl, &term);
@@ -2086,10 +2231,6 @@ static void dual_pool(struct dftl *dftl)
 	while (!term && check_cold_pool_adjustment(dftl)) {
 		do_cold_pool_adjustment(dftl, &term);
     }
-	if (check_cold_data_migration(dftl)) {
-		NVMEV_INFO("DO CDM");
-		do_cold_data_migration(dftl);
-	}
 }
 
 bool dftl_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
@@ -2131,8 +2272,8 @@ bool dftl_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struc
 			// NVMEV_INFO("DO GC");
 			do_gc(dftl, victim_line, true, false);
 
-			if (dftl->do_wl)
-				dual_pool(dftl);
+			// if (dftl->do_wl)
+			// 	dual_pool(dftl);
 		}
 	}
 

@@ -11,9 +11,9 @@
 
 #define COLD_POOL 0
 #define HOT_POOL 1
-#define TH_COLD_DATA_MIGRATION 2
-#define TH_COLD_POOL_ADJUSTMENT 2
-#define TH_HOT_POOL_ADJUSTMENT 4
+#define TH_COLD_DATA_MIGRATION 1
+#define TH_COLD_POOL_ADJUSTMENT 1
+#define TH_HOT_POOL_ADJUSTMENT 2
 
 struct dftlparams {
 	uint32_t gc_thres_lines;
@@ -143,6 +143,7 @@ struct dftl {
 
 	bool do_wl;
 	struct wl_dual_pool wl;
+	int last_gc_line;
 };
 
 void dftl_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,
