@@ -218,22 +218,22 @@ static inline void victim_line_set_pos(void *a, size_t pos)
 	((struct dftl_line *)a)->pos = pos;
 }
 
-static inline void consume_write_credit(struct dftl *dftl)
+static inline void consume_write_credit(struct dftl *dftl, int n)
 {
-	dftl->wfc.write_credits--;
+	dftl->wfc.write_credits -= n;
 }
 
 static void foreground_gc(struct dftl *dftl);
 
-// static inline void check_and_refill_write_credit(struct dftl *dftl)
-// {
-// 	struct dftl_write_flow_control *wfc = &(dftl->wfc);
-// 	if (wfc->write_credits <= 0) {
-// 		foreground_gc(dftl);
+static inline void check_and_refill_write_credit(struct dftl *dftl)
+{
+	struct dftl_write_flow_control *wfc = &(dftl->wfc);
+	if (wfc->write_credits <= 0) {
+		foreground_gc(dftl);
 
-// 		wfc->write_credits += wfc->credits_to_refill;
-// 	}
-// }
+		wfc->write_credits += wfc->credits_to_refill;
+	}
+}
 
 static void init_lines(struct dftl *dftl)
 {
@@ -326,7 +326,7 @@ static void init_cmt(struct dftl *dftl)
 	struct cmt *cmt = &dftl->cmt;
 
 	// CMT SIZE
-	cmt->tt_tpgs = 64;
+	cmt->tt_tpgs = 256;
 	cmt->entry_cnt = 0;
 
 	INIT_LIST_HEAD(&cmt->lru_list);
@@ -1383,14 +1383,20 @@ static void wl_copy_line(struct dftl *dftl, struct ppa ppa)
 static void foreground_gc(struct dftl *dftl)
 {
 	struct dftl_line *victim_line;
-	if (should_gc_high(dftl)) {
-		NVMEV_DEBUG_VERBOSE("should_gc_high passed");
-		/* perform GC here until !should_gc(dftl) */
-		victim_line = select_victim_line(dftl, true);
-		if (!victim_line) {
-			return;
+	int i;
+	for (i = 0; i < 8; i++) {
+		if (should_gc_high(dftl)) {
+			// NVMEV_DEBUG_VERBOSE("should_gc_high passed");
+			
+			/* perform GC here until !should_gc(dftl) */
+			victim_line = select_victim_line(dftl, true);
+			if (!victim_line) {
+				return;
+			}
+			NVMEV_INFO("DO GC");
+			do_gc(dftl, victim_line, true, false);
+			NVMEV_INFO("END GC");
 		}
-		do_gc(dftl, victim_line, true, false);
 	}
 }
 
@@ -1573,7 +1579,6 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 			// }
 
 			cmt->cold_miss_cnt++;
-			*nand_write = *nand_write + 1;
 		}
 		else {
 			// NVMEV_INFO("EXISTING TR PG: %lld", tr_ppa.ppa);
@@ -1797,6 +1802,9 @@ static bool dftl_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvm
 
 			req->nsecs_start = nsecs_latest;
 		}
+		
+		consume_write_credit(dftl, nand_write);
+		check_and_refill_write_credit(dftl);
 	}
 
 	ret->nsecs_target = nsecs_latest;
@@ -1918,6 +1926,8 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 
 			req->nsecs_start = nsecs_latest;
 		}
+		consume_write_credit(dftl, nand_write);
+		check_and_refill_write_credit(dftl);
 	}
 
 	if ((cmd->rw.control & NVME_RW_FUA) || (spp->write_early_completion == 0)) {
@@ -2261,11 +2271,11 @@ static void dual_pool(struct dftl *dftl)
 		NVMEV_INFO("END CDM");
 	}
 	term = false;
-	while (!term && check_hot_pool_adjustment(dftl)) {
+	if (check_hot_pool_adjustment(dftl)) {
 		do_hot_pool_adjustment(dftl, &term);
     }
 	term = false;
-	while (!term && check_cold_pool_adjustment(dftl)) {
+	if (check_cold_pool_adjustment(dftl)) {
 		do_cold_pool_adjustment(dftl, &term);
     }
 }
@@ -2303,16 +2313,8 @@ bool dftl_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struc
 		break;
 	}
 
-	while (should_gc_high(dftl)) {
-		victim_line = select_victim_line(dftl, true);
-		if (victim_line) {
-			NVMEV_INFO("DO GC");
-			do_gc(dftl, victim_line, true, false);
-
-			if (dftl->do_wl)
-				dual_pool(dftl);
-		}
-	}
+	if (dftl->do_wl)
+		dual_pool(dftl);
 
 	return true;
 }

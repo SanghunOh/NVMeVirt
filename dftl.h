@@ -72,7 +72,7 @@ struct dftl_line_mgmt {
 };
 
 struct dftl_write_flow_control {
-	uint32_t write_credits;
+	int write_credits;
 	uint32_t credits_to_refill;
 };
 
