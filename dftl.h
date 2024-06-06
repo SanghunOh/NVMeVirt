@@ -11,9 +11,9 @@
 
 #define COLD_POOL 0
 #define HOT_POOL 1
-#define TH_COLD_DATA_MIGRATION 1
-#define TH_COLD_POOL_ADJUSTMENT 1
-#define TH_HOT_POOL_ADJUSTMENT 2
+#define TH_COLD_DATA_MIGRATION 10
+#define TH_COLD_POOL_ADJUSTMENT 10
+#define TH_HOT_POOL_ADJUSTMENT 20
 
 struct dftlparams {
 	uint32_t gc_thres_lines;
@@ -23,7 +23,6 @@ struct dftlparams {
 	double op_area_pcent;
 	int pba_pcent; /* (physical space / logical space) * 100 */
 };
-
 
 struct dftl_line {
 	int id; /* line id, the same as corresponding block id */
