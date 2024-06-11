@@ -326,7 +326,7 @@ static void init_cmt(struct dftl *dftl)
 	struct cmt *cmt = &dftl->cmt;
 
 	// CMT SIZE
-	cmt->tt_tpgs = 256;
+	cmt->tt_tpgs = 1024;
 	cmt->entry_cnt = 0;
 
 	INIT_LIST_HEAD(&cmt->lru_list);
@@ -598,6 +598,9 @@ static void dftl_init_ftl(struct dftl *dftl, struct dftlparams *dpp, struct ssd 
 
 	dftl->ssd = ssd;
 
+	dftl->host_read_cmds = 0;
+	dftl->host_write_cmds = 0;
+
 	/* initialize rmap */
 	init_rmap(dftl); // reverse mapping table (?)
 
@@ -643,7 +646,7 @@ static void dftl_init_params(struct dftlparams *dpp)
 	dpp->op_area_pcent = OP_AREA_PERCENT;
 	dpp->gc_thres_lines = 8; /* Need only two lines.(host write, gc)*/
 	dpp->gc_thres_lines_high = 8; /* Need only two lines.(host write, gc)*/
-	dpp->enable_gc_delay = 0;
+	dpp->enable_gc_delay = 1;
 	dpp->pba_pcent = (int)((1 + dpp->op_area_pcent) * 100);
 }
 
@@ -897,7 +900,7 @@ static void gc_read_page(struct dftl *dftl, struct ppa *ppa)
 }
 
 /* move valid page data (already in DRAM) from victim line to a new page */
-static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
+static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa, uint64_t nsecs_start)
 {
 	struct ssdparams *spp = &dftl->ssd->sp;
 	struct dftlparams *dpp = &dftl->dp;
@@ -918,25 +921,17 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 	int nand_write = 0;
 	int i;
 
-	struct nand_cmd gcr = {
-		.type = GC_IO,
-		.cmd = NAND_READ,
-		.stime = 0,
-		.interleave_pci_dma = true,
-		.xfer_size = 0,
-	};
-
 	struct nand_cmd gcw = {
-				.type = GC_IO,
-				.cmd = NAND_NOP,
-				.stime = nsecs_read,
-				.interleave_pci_dma = false,
-				.ppa = &new_tr_ppa,
-			};
+		.type = GC_IO,
+		.cmd = NAND_NOP,
+		.stime = nsecs_start,
+		.interleave_pci_dma = false,
+		.ppa = &new_tr_ppa,
+	};
 
 	NVMEV_ASSERT(valid_lpn(dftl, lpn));
 
-	new_tr_ppa = get_new_page(dftl, TRANSLATION_GC_IO);
+	new_tr_ppa = get_new_page(dftl, TRANSLATION_IO);
 
 	old_tr_ppa = gtd->tbl[vpn];
 	old_tr_pg = get_pg(dftl->ssd, &old_tr_ppa);
@@ -960,7 +955,7 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 	mark_page_invalid(dftl, &old_tr_ppa);
 	mark_page_valid(dftl, &new_tr_ppa);
 
-	advance_write_pointer(dftl, TRANSLATION_GC_IO);
+	advance_write_pointer(dftl, TRANSLATION_IO);
 
 	new_ppa = get_new_page(dftl, GC_IO);
 	NVMEV_ASSERT(new_ppa.g.rsv != 0);
@@ -982,7 +977,6 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 		new_tr_pg->l2p = vmalloc(sizeof(struct ppa) * gtd->map_per_pg);
 		for (i = 0; i < gtd->map_per_pg; i++)
 			new_tr_pg->l2p[i].ppa = UNMAPPED_PPA;
-		// memcpy(new_tr_pg->l2p, cmt_entry->l2p, sizeof(struct ppa) * gtd->map_per_pg);
 
 		if (cmt_update(dftl, lpn, new_ppa) != NULL)
 			cmt_mark_head_dirty(dftl);
@@ -1006,8 +1000,6 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 		memcpy(new_tr_pg->l2p, old_tr_pg->l2p, sizeof(struct ppa) * gtd->map_per_pg);
 		new_tr_pg->l2p[offset] = new_ppa;
 
-		gcr.ppa = &old_tr_ppa;
-
 		if (dpp->enable_gc_delay) {
 			/* write for translation page & data page */
 			struct nand_cmd gcw = {
@@ -1022,7 +1014,6 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 				gcw.cmd = NAND_WRITE;
 				gcw.xfer_size = spp->pgsz * spp->pgs_per_oneshotpg;
 			}
-			// NVMEV_INFO("%s: GCW tr page", __func__);
 			ssd_advance_nand(dftl->ssd, &gcw);
 
 			gcw.cmd = NAND_NOP;
@@ -1032,7 +1023,6 @@ static uint64_t gc_write_data_page(struct dftl *dftl, struct ppa *old_ppa)
 				gcw.cmd = NAND_WRITE;
 				gcw.xfer_size = spp->pgsz * spp->pgs_per_oneshotpg;
 			}
-			// NVMEV_INFO("%s: GCW data page", __func__);
 			ssd_advance_nand(dftl->ssd, &gcw);
 		}
 	}
@@ -1226,7 +1216,7 @@ static void clean_one_flashpg(struct dftl *dftl, struct ppa *ppa)
 			if (pg_iter->translation)
 				gc_write_translation_page(dftl, &ppa_copy);
 			else
-				gc_write_data_page(dftl, &ppa_copy);
+				gc_write_data_page(dftl, &ppa_copy, completed_time);
 		}
 
 		ppa_copy.g.pg++;
@@ -1534,7 +1524,6 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 	nsecs_xfer_completed = cmd_stime;
 	if (!(cmt_entry = cmt_check(dftl, vpn))) {
 		/* miss in CMT */
-		// NVMEV_INFO("MISS vpn: %d, offset: %d", vpn, offset);
 		
 		cmt->miss_cnt++;
 		if (read)
@@ -1545,7 +1534,6 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 
 		if (!mapped_ppa(&tr_ppa)) {
 			/* initial translation page */
-			// tr_ppa = get_new_page(dftl, TRANSLATION_IO);
 			tr_ppa = get_new_page(dftl, TRANSLATION_IO);
 			NVMEV_ASSERT(tr_ppa.g.rsv != 0);
 			tr_pg = get_pg(dftl->ssd, &tr_ppa);
@@ -1561,19 +1549,11 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 			set_rmap_ent(dftl, vpn, &tr_ppa);
 
 			mark_page_valid(dftl, &tr_ppa);
-
-
 			advance_write_pointer(dftl, TRANSLATION_IO);
-
-			// if (io_type == USER_IO) {
-			// 	consume_write_credit(dftl);
-			// 	check_and_refill_write_credit(dftl);
-			// }
 
 			cmt->cold_miss_cnt++;
 		}
 		else {
-			// NVMEV_INFO("EXISTING TR PG: %lld", tr_ppa.ppa);
 			tr_pg = get_pg(dftl->ssd, &tr_ppa);
 		}
 		NVMEV_ASSERT(tr_pg->translation == true);
@@ -1585,13 +1565,6 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 		for (i = 0; i < gtd->map_per_pg; i++)
 			cmt_entry->l2p[i].ppa = UNMAPPED_PPA;
 
-		// if (tr_pg->l2p == NULL) {
-		// 	NVMEV_INFO("ppa: %lld, lpn: %lld, vpn:%d", tr_ppa.ppa, lpn, vpn);
-		// 	NVMEV_INFO("%p %p", t_l2p, tmp_l2p);
-		// 	NVMEV_INFO("%d", dftl->gc_cnt);
-		// 	NVMEV_INFO("%d", get_line(dftl, &tr_ppa)->id);
-		// 	cmt_print(dftl);
-		// }
 		NVMEV_ASSERT(tr_pg->l2p != NULL);
 		memcpy(cmt_entry->l2p, tr_pg->l2p, sizeof(struct ppa) * gtd->map_per_pg);
 
@@ -1634,47 +1607,27 @@ static uint64_t dftl_addr_translation(struct dftl *dftl, uint64_t nsecs_start, u
 				mark_page_invalid(dftl, &victim_tr_ppa);
 				mark_page_valid(dftl, &new_tr_ppa);
 
-				// NVMEV_INFO("evict2 vpn: %d %lld %lld", victim_vpn, victim_tr_ppa.ppa, new_tr_ppa.ppa);
-	
 				set_rmap_ent(dftl, victim_vpn, &new_tr_ppa);
 				set_rmap_ent(dftl, INVALID_LPN, &victim_tr_ppa);
 
-				// allocated_buf_size = buffer_allocate(wbuf, PAGE_SIZE);
-				// if (allocated_buf_size < PAGE_SIZE) {
-				// 	NVMEV_ERROR("%s: BUFFER NO %ld", __func__, wbuf->remaining);
-				// }
-
-				// nsecs_xfer_completed =
-				// 	ssd_advance_write_buffer(dftl->ssd, nsecs_read, PAGE_SIZE);
-
-
-				// NVMEV_INFO("evict victim tr ppa: %lld, new tr ppa: %lld", victim_tr_ppa.ppa, new_tr_ppa.ppa);
 				tmp_l2p = victim_tr_pg->l2p;
 				vfree(victim_tr_pg->l2p);
 				
 				victim_tr_pg->l2p = NULL;
 				victim_tr_pg->translation = false;
 
-				// advance_write_pointer(dftl, TRANSLATION_IO);
 				advance_write_pointer(dftl, TRANSLATION_IO);
 
-				// allocated_buf_size = buffer_allocate(wbuf, LBA_TO_BYTE(spp->secs_per_pg));
-				// nsecs_wb = ssd_advance_write_buffer(dftl->ssd, req->nsecs_start, LBA_TO_BYTE(spp->secs_per_pg));
 				swr.stime = nsecs_read;
 				swr.ppa = &new_tr_ppa;
 				swr.cmd = NAND_NOP;
 				if (last_pg_in_wordline(dftl, &new_tr_ppa)) {
-					// schedule_internal_operation(sqid, nsecs_xfer_completed, wbuf, PAGE_SIZE);
 					swr.cmd = NAND_WRITE;
 				}
 				ssd_advance_nand(dftl->ssd, &swr);
 				// nsecs_xfer_completed = ssd_advance_nand(dftl->ssd, &swr);
 				// NVMEV_INFO("TPAGE READ: %lld, after write: %lld", nsecs_read, nsecs_xfer_completed);
 
-				// if (io_type == USER_IO) {
-				// 	consume_write_credit(dftl);
-				// 	check_and_refill_write_credit(dftl);
-				// }
 				*nand_write = *nand_write + 1;
 				cmt->flush_cnt++;
 			}
@@ -1723,6 +1676,8 @@ static bool dftl_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvm
 	};
 
 	int nand_write;
+
+	dftl->host_read_cmds++;
 
 	NVMEV_ASSERT(dftls);
 	NVMEV_DEBUG_VERBOSE("%s: start_lpn=%lld, len=%lld, end_lpn=%lld", __func__, start_lpn, nr_lba, end_lpn);
@@ -1837,6 +1792,8 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 		.interleave_pci_dma = false,
 		.xfer_size = spp->pgsz * spp->pgs_per_oneshotpg,
 	};
+	
+	dftl->host_write_cmds++;
 
 	NVMEV_DEBUG_VERBOSE("%s: start_lpn=%lld, len=%lld, end_lpn=%lld", __func__, start_lpn, nr_lba, end_lpn);
 	if ((end_lpn / nr_parts) >= spp->tt_pgs) {
@@ -2304,8 +2261,8 @@ bool dftl_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struc
 		break;
 	}
 
-	if (dftl->do_wl)
-		dual_pool(dftl);
+	// if (dftl->do_wl)
+	// 	dual_pool(dftl);
 
 	return true;
 }

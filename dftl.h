@@ -143,6 +143,9 @@ struct dftl {
 	bool do_wl;
 	struct wl_dual_pool wl;
 	int last_gc_line;
+
+	uint64_t host_read_cmds;
+	uint64_t host_write_cmds;
 };
 
 void dftl_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,
