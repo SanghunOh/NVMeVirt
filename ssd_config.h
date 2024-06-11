@@ -27,6 +27,8 @@
 
 /* Must select one of INTEL_OPTANE, SAMSUNG_970PRO, or ZNS_PROTOTYPE
  * in Makefile */
+#define LBA_BITS (9)
+#define LBA_SIZE (1 << LBA_BITS)
 
 #if (BASE_SSD == INTEL_OPTANE)
 #define NR_NAMESPACES 1
@@ -38,8 +40,6 @@
 #define MDTS (5)
 #define CELL_MODE (CELL_MODE_UNKNOWN)
 
-#define LBA_BITS (9)
-#define LBA_SIZE (1 << LBA_BITS)
 
 #elif (BASE_SSD == KV_PROTOTYPE)
 #define NR_NAMESPACES 1

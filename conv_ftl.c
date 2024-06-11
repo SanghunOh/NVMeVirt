@@ -761,7 +761,7 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 	if (!victim_line) {
 		return -1;
 	}
-	NVMEV_INFO("%d %d", conv_ftl->gc_cnt, conv_ftl->lm.free_line_cnt);
+	// NVMEV_INFO("%d %d", conv_ftl->gc_cnt, conv_ftl->lm.free_line_cnt);
 
 	conv_ftl->gc_cnt++;
 
