@@ -406,7 +406,7 @@ static struct dftl_line *get_next_free_line(struct dftl *dftl)
 
 	if (!curline) {
 		NVMEV_ERROR("No free line left in VIRT !!!!\n");
-		NVMEV_INFO("%d %d %d %d", lm->tt_lines, lm->free_line_cnt, lm->victim_line_cnt, lm->full_line_cnt);
+		// NVMEV_INFO("%d %d %d %d", lm->tt_lines, lm->free_line_cnt, lm->victim_line_cnt, lm->full_line_cnt);
 		// conv_print_cmt_(dftl);
 		print_erase_cnt_(dftl);
 		return NULL;
@@ -1188,14 +1188,6 @@ static void clean_one_flashpg(struct dftl *dftl, struct ppa *ppa)
 
 	for (i = 0; i < spp->pgs_per_flashpg; i++) {
 		pg_iter = get_pg(dftl->ssd, &ppa_copy);
-		/* there shouldn't be any free page in victim blocks */
-		// if (pg_iter->status == PG_FREE) {
-		// 	NVMEV_INFO("VALID : %lld\n", ppa->g.blk);
-		// 	NVMEV_INFO("%lld %lld %lld %lld\n", __get_wp(dftl, USER_IO)->curline->id, __get_wp(dftl, GC_IO)->curline->id, __get_wp(dftl, TRANSLATION_IO)->curline->id, __get_wp(dftl, TRANSLATION_GC_IO)->curline->id);
-		// 	conv_print_cmt_(dftl);
-		// 	print_erase_cnt_(dftl);
-		// }
-		// NVMEV_ASSERT(pg_iter->status != PG_FREE);
 		if (pg_iter->status == PG_VALID) {
 			uint64_t lpn = get_rmap_ent(dftl, &ppa_copy);
 			int vpn = lpn / gtd->map_per_pg;
@@ -1264,7 +1256,7 @@ static int do_gc(struct dftl *dftl, struct dftl_line *victim_line, bool force, b
 	struct ppa ppa;
 	int flashpg;
 
-	NVMEV_INFO("%d", dftl->lm.free_line_cnt);
+	// NVMEV_INFO("%d", dftl->lm.free_line_cnt);
 	dftl->gc_cnt++;
 	// NVMEV_INFO("gc: %d", victim_line->id);
 	dftl->last_gc_line = victim_line->id;
@@ -1312,7 +1304,7 @@ static int do_gc(struct dftl *dftl, struct dftl_line *victim_line, bool force, b
 
 	/* update line status */
 	mark_line_free(dftl, &ppa);
-	NVMEV_INFO("%d %d %d %d", dftl->lm.tt_lines, dftl->lm.free_line_cnt, dftl->lm.victim_line_cnt, dftl->lm.full_line_cnt);
+	// NVMEV_INFO("%d %d %d %d", dftl->lm.tt_lines, dftl->lm.free_line_cnt, dftl->lm.victim_line_cnt, dftl->lm.full_line_cnt);
 
 	return 0;
 }
@@ -1393,9 +1385,9 @@ static void foreground_gc(struct dftl *dftl)
 			if (!victim_line) {
 				return;
 			}
-			NVMEV_INFO("DO GC");
+			// NVMEV_INFO("DO GC");
 			do_gc(dftl, victim_line, true, false);
-			NVMEV_INFO("END GC");
+			// NVMEV_INFO("END GC");
 		}
 	}
 }
@@ -1854,10 +1846,9 @@ static bool dftl_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nv
 	}
 
 	allocated_buf_size = buffer_allocate(wbuf, LBA_TO_BYTE(nr_lba));
-	// if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
-	// 	NVMEV_ERROR("BUFFER NO");
-	// 	return false;
-	// }
+	if (allocated_buf_size < LBA_TO_BYTE(nr_lba)) {
+		return false;
+	}
 
 	nsecs_latest =
 		ssd_advance_write_buffer(dftl->ssd, req->nsecs_start, LBA_TO_BYTE(nr_lba));
@@ -1972,7 +1963,7 @@ static void conv_print_cmt(struct nvmev_ns *ns, struct nvmev_request *req)
 	NVMEV_INFO("CMT read miss: %lld, write miss: %lld", cmt->read_miss_cnt, cmt->write_miss_cnt);
 	NVMEV_INFO("GC: %d", dftl->gc_cnt);
 	NVMEV_INFO("flush: %lld, cold miss: %lld", cmt->flush_cnt, cmt->cold_miss_cnt);
-	cmt_print(dftl);
+	// cmt_print(dftl);
 }
 
 static void conv_print_cmt_(struct dftl *dftl)
@@ -2219,7 +2210,7 @@ static void do_cold_data_migration(struct dftl *dftl)
 	l = get_line(dftl, &ppa);
 
 	// NVMEV_INFO("victim line: %lld, dest line: %lld, tr: %d %d %d", victim_line->id, ppa.g.blk, l->translation, l->vpc, l->ipc);
-	NVMEV_INFO("WL COPY");
+	// NVMEV_INFO("WL COPY");
 	wl_copy_line(dftl, ppa);
 	// NVMEV_INFO("end COPY LINE");
 	// NVMEV_INFO("victim line: %lld, dest line: %lld, tr: %d %d %d", victim_line->id, ppa.g.blk, l->translation, l->vpc, l->ipc);
@@ -2259,16 +2250,16 @@ static void do_cold_data_migration(struct dftl *dftl)
 	return;
 }
 
-static void dual_pool(struct dftl *dftl) 
+static void dual_pool(struct dftl *dftl)
 {
 	struct wl_dual_pool *wl = &dftl->wl;
 	bool term;
 	
 	if (check_cold_data_migration(dftl)) {
-		NVMEV_INFO("DO CDM %d", wl->cdm);
-		NVMEV_INFO("%d %d %d %d", dftl->lm.tt_lines, dftl->lm.free_line_cnt, dftl->lm.victim_line_cnt, dftl->lm.full_line_cnt);
+		// NVMEV_INFO("DO CDM %d", wl->cdm);
+		// NVMEV_INFO("%d %d %d %d", dftl->lm.tt_lines, dftl->lm.free_line_cnt, dftl->lm.victim_line_cnt, dftl->lm.full_line_cnt);
 		do_cold_data_migration(dftl);
-		NVMEV_INFO("END CDM");
+		// NVMEV_INFO("END CDM");
 	}
 	term = false;
 	if (check_hot_pool_adjustment(dftl)) {
