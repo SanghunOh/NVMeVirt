@@ -3,7 +3,6 @@
 #ifndef _NVMEVIRT_CONV_FTL_H
 #define _NVMEVIRT_CONV_FTL_H
 
-#include <linux/hashtable.h>
 #include <linux/types.h>
 #include "pqueue/pqueue.h"
 #include "ssd_config.h"
@@ -25,8 +24,6 @@ struct line {
 	struct list_head entry;
 	/* position in the priority queue for victim lines */
 	size_t pos;
-
-	bool translation;
 };
 
 /* wp: record next write addr */
@@ -51,43 +48,11 @@ struct line_mgmt {
 	uint32_t free_line_cnt;
 	uint32_t victim_line_cnt;
 	uint32_t full_line_cnt;
-
-	uint32_t translation_line_cnt;
 };
 
 struct write_flow_control {
 	uint32_t write_credits;
 	uint32_t credits_to_refill;
-};
-
-struct global_translation_directory {
-	int map_per_pg;
-	int tt_tpgs;
-	struct ppa *tbl;
-};
-
-struct cached_mapping_table_entry {
-	int vpn;
-	struct ppa *l2p;
-	bool dirty;
-
-	struct hlist_node hnode;
-	struct list_head entry;
-};
-
-struct cached_mapping_table {
-	int tt_tpgs;
-	int entry_cnt;
-
-	uint64_t hit_cnt;
-	uint64_t miss_cnt;
-	uint64_t read_miss_cnt;
-	uint64_t write_miss_cnt;
-	uint64_t cold_miss_cnt;
-	uint64_t flush_cnt;
-
-	struct list_head lru_list;
-	DECLARE_HASHTABLE(lru_hash, 10);
 };
 
 struct conv_ftl {
@@ -98,17 +63,9 @@ struct conv_ftl {
 	uint64_t *rmap; /* reverse mapptbl, assume it's stored in OOB */
 	struct write_pointer wp;
 	struct write_pointer gc_wp;
-	struct write_pointer translation_wp;
-	struct write_pointer translation_gc_wp;
 	struct line_mgmt lm;
 	struct write_flow_control wfc;
-
-	bool ideal_mapping;
-
-    struct global_translation_directory gtd;
-	struct cached_mapping_table cmt;
-	uint32_t cmt_size;
-	int gc_cnt;
+	uint64_t gc_cnt;
 };
 
 void conv_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,
