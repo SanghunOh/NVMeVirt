@@ -249,6 +249,8 @@ struct nvme_virtual_smart {
 	__u32 max_ec;
 	__u32 gc_trigger_count;
 	__u32 wl_trigger_count;
+	__u32 pgs_per_line;
+	__u32 copy_per_gc;
 };
 
 enum {

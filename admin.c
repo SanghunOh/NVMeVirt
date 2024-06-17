@@ -231,6 +231,7 @@ static void __nvmev_admin_get_log_page(int eid)
 		static struct nvme_virtual_smart vsmart_log = {};
 		size_t nsid = cmd->nsid - 1;
 
+		vsmart_log.pgs_per_line = 512;
 #if SUPPORTED_SSD_TYPE(CONV)
 		vsmart_log.freeblock_count = get_freeblock_count_convftl(nsid);
 		vsmart_log.percentage_used = get_percentage_used_convftl(nsid);
@@ -241,6 +242,7 @@ static void __nvmev_admin_get_log_page(int eid)
 		vsmart_log.max_ec = get_min_ec_convftl(nsid);
 		vsmart_log.gc_trigger_count = get_gc_trigger_count_convftl();
 		vsmart_log.wl_trigger_count = get_wl_trigger_count();
+		vsmart_log.copy_per_gc = get_copy_per_gc_convftl();
 
 #elif SUPPORTED_SSD_TYPE(DFTL)
 		vsmart_log.freeblock_count = get_freeblock_count_dftl(nsid);
@@ -252,6 +254,7 @@ static void __nvmev_admin_get_log_page(int eid)
 		vsmart_log.max_ec = get_max_ec_dftl(nsid);
 		vsmart_log.gc_trigger_count = get_gc_trigger_count_dftl();
 		vsmart_log.wl_trigger_count = get_wl_trigger_count();
+		vsmart_log.copy_per_gc = get_copy_per_gc_dftl();
 #endif
 		__memcpy(page, &vsmart_log, sizeof(vsmart_log));
 		break;
@@ -684,6 +687,11 @@ void update_wl_trigger_count(void)
 	vsmart_db.wl_trigger_count++;
 }
 
+void update_copy(__u64 cnt)
+{
+	vsmart_db.copy += cnt;
+}
+
 __u32 get_freeblock_count_convftl(size_t nsid)
 {	
 	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
@@ -884,4 +892,20 @@ __u32 get_gc_trigger_count_dftl(void)
 __u32 get_wl_trigger_count(void)
 {
 	return vsmart_db.wl_trigger_count;
+}
+
+__u32 get_copy_per_gc_convftl(void)
+{
+	__u32 gc = get_gc_trigger_count_convftl();
+	if (!gc)
+		return 0;
+	return vsmart_db.copy / get_gc_trigger_count_convftl();
+}
+
+__u32 get_copy_per_gc_dftl(void)
+{
+	__u32 gc = get_gc_trigger_count_dftl();
+	if (!gc)
+		return 0;
+	return vsmart_db.copy / get_gc_trigger_count_dftl();
 }

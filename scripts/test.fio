@@ -1,11 +1,16 @@
 [global]
-bs=4K
-iodepth=16
-direct=1
-group_reporting
+ioengine=sync
+rw=randwrite
+bs=32k
 numjobs=1
-name=ssd-targets
+iodepth=1
+direct=0
+group_reporting
+read_iolog=a.io
+read_iolog_chunked=1
 
-[job1]
-filename=./data
-read_iolog=trace_lun_2_fio_nvme1.trace
+[random_write_intensive1]
+filename=/home/shoh/data/file
+rw=randwrite
+size=8G
+random_distribution=zoned:90/10:10/90

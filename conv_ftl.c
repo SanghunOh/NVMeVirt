@@ -7,6 +7,29 @@
 #include "conv_ftl.h"
 #include "vsmart.h"
 
+static void print_erase_cnt(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret)
+{
+	struct conv_ftl *ftls = (struct conv_ftl *)ns->ftls;
+	struct conv_ftl *ftl = &ftls[0];
+	struct nvme_command *cmd = req->cmd;
+    struct ssdparams *cpp = &ftl->ssd->sp;	
+    struct line_mgmt *lm = &ftl->lm;
+    int i;
+	uint64_t nsecs_start = req->nsecs_start;
+	uint64_t nsecs_latest = nsecs_start;
+	int print_each_bool = cmd->common.cdw2[0];
+
+	printk(KERN_INFO "------------TOTAL %ld------------", cpp->tt_lines);
+	printk(KERN_INFO "");
+	for (i = 0; i < cpp->tt_lines; i++) {
+		printk(KERN_CONT "%d ", lm->lines[i].nr_erase);
+	}
+	printk(KERN_INFO "");
+	ret->nsecs_target = nsecs_latest;
+	ret->status = NVME_SC_SUCCESS;
+}
+
+
 static inline bool last_pg_in_wordline(struct conv_ftl *conv_ftl, struct ppa *ppa)
 {
 	struct ssdparams *spp = &conv_ftl->ssd->sp;
@@ -1079,6 +1102,9 @@ bool conv_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struc
 		break;
 	case nvme_cmd_print_cmt:
         conv_print_cmt(ns, req);
+		break;
+	case nvme_cmd_print_ec:
+		print_erase_cnt(ns, req, ret);
 		break;
 	default:
 		NVMEV_ERROR("%s: command not implemented: %s (0x%x)\n", __func__,
