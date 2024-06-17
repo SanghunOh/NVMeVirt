@@ -4,6 +4,7 @@
 #define _NVMEVIRT_DFTL_H
 
 #include <linux/types.h>
+#include <linux/hashtable.h> 
 #include "pqueue/pqueue.h"
 #include "ssd_config.h"
 #include "ssd.h"

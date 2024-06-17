@@ -238,6 +238,19 @@ struct nvme_smart_log {
 	__u8 rsvd216[296];
 };
 
+// JE
+struct nvme_virtual_smart {
+	__u32 freeblock_count;
+	__u32 percentage_used;
+	__u32 data_units_read;
+	__u32 data_units_written;
+	__u32 avg_ec;
+	__u32 min_ec;
+	__u32 max_ec;
+	__u32 gc_trigger_count;
+	__u32 wl_trigger_count;
+};
+
 enum {
 	NVME_CMD_EFFECTS_CSUPP = 1 << 0,
 	NVME_CMD_EFFECTS_LBCC = 1 << 1,
@@ -517,6 +530,9 @@ enum {
 	NVME_LOG_ANA = 0x0c,
 	NVME_LOG_DISC = 0x70,
 	NVME_LOG_RESERVATION = 0x80,
+
+	// JE
+	NVME_LOG_VSMART = 0xC0,
 	NVME_FWACT_REPL = (0 << 3),
 	NVME_FWACT_REPL_ACTV = (1 << 3),
 	NVME_FWACT_ACTV = (2 << 3),

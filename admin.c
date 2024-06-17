@@ -3,6 +3,9 @@
 #include "nvmev.h"
 #include "conv_ftl.h"
 #include "zns_ftl.h"
+#include "vsmart.h"
+#include "dftl.h"
+#include "ssd_config.h"
 
 #define sq_entry(entry_id) \
 	queue->nvme_sq[SQ_ENTRY_TO_PAGE_NUM(entry_id)][SQ_ENTRY_TO_PAGE_OFFSET(entry_id)]
@@ -12,6 +15,9 @@
 #define prp_address_offset(prp, offset) \
 	(page_address(pfn_to_page(prp >> PAGE_SHIFT) + offset) + (prp & ~PAGE_MASK))
 #define prp_address(prp) prp_address_offset(prp, 0)
+
+// JE
+struct vsmart vsmart_db;
 
 static void __make_cq_entry_results(int eid, u16 ret, u32 result0, u32 result1)
 {
@@ -179,8 +185,8 @@ static void __nvmev_admin_get_log_page(int eid)
 	switch (cmd->lid) {
 	case NVME_LOG_SMART: {
 		static const struct nvme_smart_log smart_log = {
-			.critical_warning = 0,
-			.spare_thresh = 20,
+			.critical_warning = 0x99,
+			.spare_thresh = 0x20,
 			.host_reads[0] = cpu_to_le64(0),
 			.host_writes[0] = cpu_to_le64(0),
 			.num_err_log_entries[0] = cpu_to_le64(0),
@@ -219,6 +225,35 @@ static void __nvmev_admin_get_log_page(int eid)
 		};
 
 		__memcpy(page, &effects_log, len);
+		break;
+	}
+	case NVME_LOG_VSMART: {
+		static struct nvme_virtual_smart vsmart_log = {};
+		size_t nsid = cmd->nsid - 1;
+
+#if SUPPORTED_SSD_TYPE(CONV)
+		vsmart_log.freeblock_count = get_freeblock_count_convftl(nsid);
+		vsmart_log.percentage_used = get_percentage_used_convftl(nsid);
+		vsmart_log.data_units_read = get_data_unit_read();
+		vsmart_log.data_units_written = get_data_unit_written();
+		vsmart_log.avg_ec = get_total_ec_convftl(nsid);
+		vsmart_log.min_ec = get_min_ec_convftl(nsid);
+		vsmart_log.max_ec = get_min_ec_convftl(nsid);
+		vsmart_log.gc_trigger_count = get_gc_trigger_count_convftl();
+		vsmart_log.wl_trigger_count = get_wl_trigger_count();
+
+#elif SUPPORTED_SSD_TYPE(DFTL)
+		vsmart_log.freeblock_count = get_freeblock_count_dftl(nsid);
+		vsmart_log.percentage_used = get_percentage_used_dftl(nsid);
+		vsmart_log.data_units_read = get_data_unit_read();
+		vsmart_log.data_units_written = get_data_unit_written();
+		vsmart_log.avg_ec = get_total_ec_dftl(nsid);
+		vsmart_log.min_ec = get_min_ec_dftl(nsid);
+		vsmart_log.max_ec = get_max_ec_dftl(nsid);
+		vsmart_log.gc_trigger_count = get_gc_trigger_count_dftl();
+		vsmart_log.wl_trigger_count = get_wl_trigger_count();
+#endif
+		__memcpy(page, &vsmart_log, sizeof(vsmart_log));
 		break;
 	}
 	default:
@@ -618,4 +653,235 @@ void nvmev_proc_admin_sq(int new_db, int old_db)
 
 void nvmev_proc_admin_cq(int new_db, int old_db)
 {
+}
+
+// JE
+void update_data_units(__u8 opcode)
+{
+    // assume lbaf = 512B 
+    if (opcode == nvme_cmd_write) 
+    {
+		vsmart_db.data_units_written++;
+	}
+	else if (opcode == nvme_cmd_read)
+    {
+		vsmart_db.data_units_read++;
+	}
+}
+
+void update_gc_trigger_count_convftl(void)
+{
+	vsmart_db.gc_trigger_count_convftl++;
+}
+
+void update_gc_trigger_count_dftl(void)
+{
+	vsmart_db.gc_trigger_count_dftl++;
+}
+
+void update_wl_trigger_count(void)
+{
+	vsmart_db.wl_trigger_count++;
+}
+
+__u32 get_freeblock_count_convftl(size_t nsid)
+{	
+	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
+	struct conv_ftl *conv_ftls = (struct conv_ftl *)ns->ftls;
+	struct conv_ftl *conv_ftl = &conv_ftls[0];
+	struct line_mgmt *lm = &conv_ftl->lm;
+
+	NVMEV_DEBUG("SSD_TYPE_CONV!!! \n");
+
+	return lm->free_line_cnt;
+}
+
+__u32 get_freeblock_count_dftl(size_t nsid)
+{
+	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
+	struct dftl *dftls = (struct dftl *)ns->ftls;
+	struct dftl *dftl = &dftls[0];	
+	struct dftl_line_mgmt *lm = &dftl->lm;
+
+	NVMEV_DEBUG("SSD_TYPE_DFTL!!! \n");
+	return lm->free_line_cnt;
+}
+
+__u32 get_percentage_used_convftl(size_t nsid)
+{
+	__u32 device_pe_cycle = DEVICE_PE_CYCLE * BLKS_PER_PLN;
+	__u32 current_erase_count = get_total_ec_convftl(nsid);
+	__u32 percentage_used = 0;
+
+	if (device_pe_cycle != 0) 
+	{
+		percentage_used = (current_erase_count * 100) / device_pe_cycle;
+	}
+	
+	return percentage_used;
+}
+
+__u32 get_percentage_used_dftl(size_t nsid)
+{
+	__u32 device_pe_cycle = DEVICE_PE_CYCLE * BLKS_PER_PLN;
+	__u32 current_erase_count = get_total_ec_dftl(nsid);
+	__u32 percentage_used = 0;
+
+	if (device_pe_cycle != 0) 
+	{
+		percentage_used = (current_erase_count * 100) / device_pe_cycle;
+	}
+	
+	return percentage_used;
+}
+
+__u32 get_data_unit_written(void)
+{
+    return vsmart_db.data_units_written;
+}
+
+__u32 get_data_unit_read(void)
+{
+    return vsmart_db.data_units_read;
+}
+
+__u32 get_total_ec_convftl(size_t nsid)
+{
+	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
+	struct conv_ftl *conv_ftls = (struct conv_ftl *)ns->ftls;
+	struct conv_ftl *conv_ftl = &conv_ftls[0];
+	struct line_mgmt *lm = &conv_ftl->lm;
+	struct ssdparams *dpp = &conv_ftl->ssd->sp;	
+
+	__u32 total_ec = 0;
+	int i;
+
+	for (i = 0; i < dpp->tt_lines; i++) 
+	{
+		total_ec += lm->lines[i].nr_erase;
+	}
+
+	return total_ec;
+}
+
+__u32 get_total_ec_dftl(size_t nsid)
+{
+	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
+	struct dftl *dftls = (struct dftl *)ns->ftls;
+	struct dftl *dftl = &dftls[0];		
+	struct dftl_line_mgmt *lm = &dftl->lm;
+	struct ssdparams *dpp = &dftl->ssd->sp;	
+
+	__u32 total_ec = 0;
+	int i;
+
+	for (i = 0; i < dpp->tt_lines; i++) 
+	{
+		total_ec += lm->lines[i].nr_erase;
+	}
+
+	return total_ec;
+}
+
+__u32 get_min_ec_convftl(size_t nsid)
+{
+	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
+	struct conv_ftl *conv_ftls = (struct conv_ftl *)ns->ftls;
+	struct conv_ftl *conv_ftl = &conv_ftls[0];
+	struct line_mgmt *lm = &conv_ftl->lm;
+	struct ssdparams *dpp = &conv_ftl->ssd->sp;	
+
+	__u32 min_ec = 0xFFFFFFFF;
+	int i;
+
+	for (i = 0; i < dpp->tt_lines; i++) 
+	{
+		if (lm->lines[i].nr_erase < min_ec)
+		{
+			min_ec = lm->lines[i].nr_erase;
+		}
+	}
+
+	return min_ec;
+}
+
+__u32 get_min_ec_dftl(size_t nsid)
+{
+	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
+	struct dftl *dftls = (struct dftl *)ns->ftls;
+	struct dftl *dftl = &dftls[0];		
+	struct dftl_line_mgmt *lm = &dftl->lm;
+	struct ssdparams *dpp = &dftl->ssd->sp;	
+
+	__u32 min_ec = 0xFFFFFFFF;
+	int i;
+
+	for (i = 0; i < dpp->tt_lines; i++) 
+	{
+		if (lm->lines[i].nr_erase < min_ec)
+		{
+			min_ec = lm->lines[i].nr_erase;
+		}
+	}
+
+	return min_ec;
+}
+
+__u32 get_max_ec_convftl(size_t nsid)
+{
+	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
+	struct conv_ftl *conv_ftls = (struct conv_ftl *)ns->ftls;
+	struct conv_ftl *conv_ftl = &conv_ftls[0];
+	struct line_mgmt *lm = &conv_ftl->lm;
+	struct ssdparams *dpp = &conv_ftl->ssd->sp;	
+
+	__u32 max_ec = 0;
+	int i;
+
+	for (i = 0; i < dpp->tt_lines; i++) 
+	{
+		if (lm->lines[i].nr_erase > max_ec)
+		{
+			max_ec = lm->lines[i].nr_erase;
+		}
+	}
+
+	return max_ec;
+}
+
+__u32 get_max_ec_dftl(size_t nsid)
+{
+	struct nvmev_ns *ns = &nvmev_vdev->ns[nsid];
+	struct dftl *dftls = (struct dftl *)ns->ftls;
+	struct dftl *dftl = &dftls[0];	
+	struct dftl_line_mgmt *lm = &dftl->lm;
+	struct ssdparams *dpp = &dftl->ssd->sp;	
+
+	__u32 max_ec = 0;
+	int i;
+
+	for (i = 0; i < dpp->tt_lines; i++) 
+	{
+		if (lm->lines[i].nr_erase > max_ec)
+		{
+			max_ec = lm->lines[i].nr_erase;
+		}
+	}
+
+	return max_ec;
+}
+
+__u32 get_gc_trigger_count_convftl(void)
+{
+	return vsmart_db.gc_trigger_count_convftl;
+}
+
+__u32 get_gc_trigger_count_dftl(void)
+{
+	return vsmart_db.gc_trigger_count_dftl;
+}
+
+__u32 get_wl_trigger_count(void)
+{
+	return vsmart_db.wl_trigger_count;
 }

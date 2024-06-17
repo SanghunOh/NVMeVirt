@@ -6,6 +6,7 @@
 
 #include "nvmev.h"
 #include "dftl.h"
+#include "vsmart.h"
 
 void schedule_internal_operation(int sqid, unsigned long long nsecs_target,
 				 struct buffer *write_buffer, size_t buffs_to_release);
@@ -1251,6 +1252,7 @@ static int do_gc(struct dftl *dftl, struct dftl_line *victim_line, bool force, b
 
 	// NVMEV_INFO("%d", dftl->lm.free_line_cnt);
 	dftl->gc_cnt++;
+	update_gc_trigger_count_dftl();
 	// NVMEV_INFO("gc: %d", victim_line->id);
 	dftl->last_gc_line = victim_line->id;
 	ppa.g.blk = victim_line->id;
@@ -2213,6 +2215,9 @@ static void dual_pool(struct dftl *dftl)
 		// NVMEV_INFO("DO CDM %d", wl->cdm);
 		// NVMEV_INFO("%d %d %d %d", dftl->lm.tt_lines, dftl->lm.free_line_cnt, dftl->lm.victim_line_cnt, dftl->lm.full_line_cnt);
 		do_cold_data_migration(dftl);
+
+		// JE
+		update_wl_trigger_count();
 		// NVMEV_INFO("END CDM");
 	}
 	term = false;

@@ -7,6 +7,7 @@
 
 #include "nvmev.h"
 #include "dma.h"
+#include "vsmart.h"
 
 #if (SUPPORTED_SSD_TYPE(CONV) || SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(DFTL))
 #include "ssd.h"
@@ -431,6 +432,10 @@ static size_t __nvmev_proc_io(int sqid, int sq_entry, size_t *io_size)
 	static unsigned long long clock3 = 0;
 	static unsigned long long counter = 0;
 #endif
+
+	// JE 
+	// gather io cmd count 
+	update_data_units(cmd->rw.opcode);
 
 	if (!ns->proc_io_cmd(ns, &req, &ret))
 		return false;

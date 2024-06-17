@@ -5,6 +5,7 @@
 
 #include "nvmev.h"
 #include "conv_ftl.h"
+#include "vsmart.h"
 
 static inline bool last_pg_in_wordline(struct conv_ftl *conv_ftl, struct ppa *ppa)
 {
@@ -746,6 +747,7 @@ static void mark_line_free(struct conv_ftl *conv_ftl, struct ppa *ppa)
 	struct line *line = get_line(conv_ftl, ppa);
 	line->ipc = 0;
 	line->vpc = 0;
+	line->nr_erase++;
 	/* move this line to free line list */
 	list_add_tail(&line->entry, &lm->free_line_list);
 	lm->free_line_cnt++;
@@ -763,6 +765,7 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 		return -1;
 	}
 	conv_ftl->gc_cnt++;
+	update_gc_trigger_count_convftl();
 
 	ppa.g.blk = victim_line->id;
 	NVMEV_DEBUG_VERBOSE("GC-ing line:%d,ipc=%d(%d),victim=%d,full=%d,free=%d\n", ppa.g.blk,
@@ -810,7 +813,7 @@ static int do_gc(struct conv_ftl *conv_ftl, bool force)
 
 	/* update line status */
 	mark_line_free(conv_ftl, &ppa);
-
+	
 	return 0;
 }
 
